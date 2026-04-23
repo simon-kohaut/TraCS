@@ -1,0 +1,3 @@
+distance(vehicle)
+over(road)
+follows(lane)

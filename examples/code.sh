@@ -1,0 +1,1 @@
+tracs_gen regulations.txt -l library.txt -o generated.re --log log.txt --coder-model qwen2.5:7b-instruct --judge-model qwen2.5:7b-instruct --max-iterations 5
