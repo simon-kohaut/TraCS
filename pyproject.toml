@@ -1,3 +1,36 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracs"
+dynamic = ["version"]
+description = "A Python package to apply probabilistic logic programming to motion prediction tasks."
+readme = "README.md"
+license = { text = "BSD-3-Clause" }
+authors = [
+    { name = "Simon Kohaut", email = "simon.kohaut@cs.tu-darmstadt.de" },
+    { name = "Felix Divo", email = "felix.divo@cs.tu-darmstadt.de" },
+    { name = "Julius Hahnewald" },
+]
+requires-python = ">=3.13"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "promis>=4.0.0.dev1",
+    "langchain>=0.3",
+    "langchain-ollama>=0.2",
+    "rich>=13.0",
+]
+
+[project.scripts]
+tracs_gen = "tracs.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "tracs.__version__" }
+
+[tool.setuptools.package-data]
+tracs = ["py.typed"]
