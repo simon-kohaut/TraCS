@@ -1,0 +1,1 @@
+Vehicles drive on the correct side of the road. We model right-hand traffic.

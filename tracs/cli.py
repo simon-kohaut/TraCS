@@ -82,7 +82,7 @@ def _log_iteration(record: IterationRecord, max_iterations: int) -> str:
         lines.append(f"Critique: {record.critique}")
     lines += ["", f"Compiler: {'OK' if record.compiled else 'ERROR'}"]
     if not record.compiled:
-        lines += [f"Errors:", record.diagnostics]
+        lines += ["Errors:", record.diagnostics]
     lines.append("")
     return "\n".join(lines)
 
