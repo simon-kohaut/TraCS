@@ -12,6 +12,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from rich import box
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -86,6 +88,8 @@ def _log_iteration(record: IterationRecord, max_iterations: int) -> str:
 
 
 def main() -> None:
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         prog="tracs",
         description="Generate a Resin compliance model from a natural-language traffic regulation.",
@@ -112,16 +116,26 @@ def main() -> None:
         help="Write a plain-text session log to this file.",
     )
     parser.add_argument(
+        "--backend",
+        default="ollama",
+        choices=["ollama", "openai", "anthropic", "local"],
+        help=(
+            "LLM backend to use (default: ollama). "
+            "'openai' reads OPENAI_API_KEY, 'anthropic' reads ANTHROPIC_API_KEY, "
+            "'local' reads LOCAL_MODEL_BASE_URL and LOCAL_MODEL_KEY from .env."
+        ),
+    )
+    parser.add_argument(
         "--coder-model",
         default="qwen2.5:7b-instruct",
         metavar="MODEL",
-        help="Ollama model for the coder agent (default: qwen2.5:7b-instruct).",
+        help="Model name for the coder agent (default: qwen2.5:7b-instruct).",
     )
     parser.add_argument(
         "--judge-model",
         default="qwen2.5:7b-instruct",
         metavar="MODEL",
-        help="Ollama model for the judge agent (default: qwen2.5:7b-instruct).",
+        help="Model name for the judge agent (default: qwen2.5:7b-instruct).",
     )
     parser.add_argument(
         "--max-iterations",
@@ -151,6 +165,7 @@ def main() -> None:
         console.rule("[bold cyan]TraCS[/bold cyan]")
         console.print(f"  Regulation : [cyan]{args.regulation}[/cyan]")
         console.print(f"  Library    : [cyan]{args.library}[/cyan]")
+        console.print(f"  Backend    : [cyan]{args.backend}[/cyan]")
         console.print(f"  Coder      : [cyan]{args.coder_model}[/cyan]")
         console.print(f"  Judge      : [cyan]{args.judge_model}[/cyan]")
         console.print(f"  Max iter.  : [cyan]{args.max_iterations}[/cyan]")
@@ -161,6 +176,7 @@ def main() -> None:
                 f"TraCS session\n"
                 f"Regulation : {args.regulation}\n"
                 f"Library    : {args.library}\n"
+                f"Backend    : {args.backend}\n"
                 f"Coder      : {args.coder_model}\n"
                 f"Judge      : {args.judge_model}\n"
                 f"Max iter.  : {args.max_iterations}\n\n"
@@ -169,6 +185,7 @@ def main() -> None:
         pipeline = CoderPipeline(
             coder_model=args.coder_model,
             judge_model=args.judge_model,
+            backend=args.backend,
             max_iterations=args.max_iterations,
         )
 

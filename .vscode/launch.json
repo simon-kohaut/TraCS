@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "tracs_gen (local)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tracs.cli",
+            "args": [
+                "examples/regulations.txt",
+                "--library", "examples/library.txt",
+                "--backend", "local",
+                "--coder-model", "google/gemma-4-E4B-it",
+                "--judge-model", "google/gemma-4-E4B-it",
+                "--max-iterations", "3"
+            ],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "justMyCode": false
+        }
+    ]
+}

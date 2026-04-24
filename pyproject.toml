@@ -21,13 +21,17 @@ classifiers = [
 ]
 dependencies = [
     "promis>=4.0.0.dev1",
-    "langchain>=0.3",
+    "langchain[anthropic,openai]>=0.3",
     "langchain-ollama>=0.2",
+    "python-dotenv>=1.0",
     "rich>=13.0",
 ]
 
 [project.scripts]
 tracs_gen = "tracs.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tracs*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "tracs.__version__" }

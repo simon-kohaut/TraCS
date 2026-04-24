@@ -2,7 +2,22 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
 	"name": "TraCS",
-	"image": "mcr.microsoft.com/devcontainers/python:3-3.13",
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+
+	"features": {
+		"ghcr.io/devcontainers/features/python:1": {
+			"version": "3.13",
+			"installTools": false
+		}
+	},
+
+	"containerEnv": {
+		"CLINGO_LIBRARY_PATH": "/usr/lib/aarch64-linux-gnu"
+	},
+
+	"runArgs": [
+		"--add-host=host.docker.internal:host-gateway"
+	],
 
 	"customizations": {
 		"vscode": {
@@ -13,13 +28,9 @@
 				"tamasfe.even-better-toml"
 			]
 		}
-	}
+	},
 
-	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [],
-
-	// Use 'postCreateCommand' to run commands after the container is created.
-	// "postCreateCommand": "pip3 install --user -r requirements.txt",
+	"postCreateCommand": "sudo apt-get update && sudo apt-get install -y gringo && export CLINGO_LIBRARY_PATH=/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH) && pip install -e ."
 
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "root"

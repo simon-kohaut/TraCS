@@ -10,10 +10,13 @@
 
 import re
 from dataclasses import dataclass
+from os import getenv
 from typing import Callable, Optional
 
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 
 
 _CODER_SYSTEM = """\
@@ -167,13 +170,28 @@ class CoderPipeline:
 
     coder_model: str = "qwen2.5:7b-instruct"
     judge_model: str = "qwen2.5:7b-instruct"
+    backend: str = "ollama"
     max_iterations: int = 10
     coder_temperature: float = 0.2
     judge_temperature: float = 0.0
 
     def __post_init__(self):
-        self._coder = ChatOllama(model=self.coder_model, temperature=self.coder_temperature)
-        self._judge = ChatOllama(model=self.judge_model, temperature=self.judge_temperature)
+        self._coder = self._build_model(self.coder_model, self.coder_temperature)
+        self._judge = self._build_model(self.judge_model, self.judge_temperature)
+
+    def _build_model(self, model: str, temperature: float):
+        if self.backend == "openai":
+            return ChatOpenAI(model=model, temperature=temperature)
+        if self.backend == "anthropic":
+            return ChatAnthropic(model=model, temperature=temperature, max_tokens=4096)
+        if self.backend == "local":
+            return ChatOpenAI(
+                model=model,
+                base_url=getenv("LOCAL_MODEL_BASE_URL", "http://host.docker.internal:54112/v1"),
+                api_key=getenv("LOCAL_MODEL_KEY", ""),
+                temperature=temperature,
+            )
+        return ChatOllama(model=model, temperature=temperature)
 
     def run(
         self,
