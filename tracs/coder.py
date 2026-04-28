@@ -17,48 +17,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
-
-
-# _CODER_SYSTEM = """\
-# You are an expert in probabilistic logic programming using the Resin language.
-# Given a natural-language description of traffic regulations and a library of
-# probabilistic spatial relations, generate a Resin program that formally encodes
-# the described rules using only the primitives provided by that library.
-
-# Here is an example Resin program:
-#     permitted if over(park).
-#     permitted if over(water).
-
-#     road_safety if distance(primary) < 35.0.
-#     road_safety if distance(secondary) < 15.0.
-
-#     agent_safety if distance(vessel) > 100.0 and distance(uas) > 100.0.
-
-#     landscape if distance(hospital) > 200.0 and road_safety and agent_safety.
-#     landscape if permitted and agent_safety.
-
-# Output ONLY the raw Resin program. No prose, no markdown fences.
-# """
-
-# _JUDGE_SYSTEM = """\
-# You are an expert in traffic regulations and probabilistic logic programming.
-# Given a natural-language regulation and a candidate Resin program, evaluate
-# whether the program faithfully encodes the regulation. Identify logical gaps,
-# missing constraints, or misrepresentations.
-
-# The regulations aim to express rules for a single agent relative to it and its environment.
-# Do not expect rules to reason about an entire traffic space and all combinations of agents.
-# All relations such as distnace(T) imply that they hold for ALL environment features of that type T.
-
-# Respond in exactly this format:
-# VERDICT: PASS
-# CRITIQUE: OK
-
-# or
-
-# VERDICT: FAIL
-# CRITIQUE: <concise explanation of what is wrong or missing>
-# """
+from pydantic import BaseModel
 
 
 _IDENTIFIER    = r'[a-zA-Z_][a-zA-Z0-9_]*'
@@ -154,6 +113,11 @@ def _check_clause(clause: str) -> list[str]:
     return errors
 
 
+class JudgeOutput(BaseModel):
+    verdict: bool
+    critique: str
+
+
 @dataclass
 class IterationRecord:
     iteration: int
@@ -172,13 +136,13 @@ class CoderPipeline:
     judge_model: str = "qwen2.5:7b-instruct"
     backend: str = "ollama"
     max_iterations: int = 10
-    coder_temperature: float = 0.2
+    coder_temperature: float = 0.3
     judge_temperature: float = 0.0
     seed: Optional[int] = None
 
     def __post_init__(self):
         self._coder = self._build_model(self.coder_model, self.coder_temperature, self.seed)
-        self._judge = self._build_model(self.judge_model, self.judge_temperature, self.seed)
+        self._judge = self._build_model(self.judge_model, self.judge_temperature, self.seed).with_structured_output(JudgeOutput)
 
     def _build_model(self, model: str, temperature: float, seed: Optional[int]):
         if self.backend == "openai":
@@ -253,8 +217,8 @@ class CoderPipeline:
             SystemMessage(content=_JUDGE_SYSTEM),
             HumanMessage(content=_judge_prompt(regulation, program)),
         ]
-        response = self._judge.invoke(messages).content.strip()
-        return _parse_judge_response(response)
+        result: JudgeOutput = self._judge.invoke(messages)
+        return result.verdict, result.critique
 
 
 def _coder_prompt(regulation: str, feedback: Optional[str]) -> str:
@@ -289,23 +253,11 @@ def _build_feedback(
     return "\n\n".join(parts)
 
 
-def _parse_judge_response(response: str) -> tuple[bool, str]:
-    """Parse VERDICT/CRITIQUE lines from the judge's response."""
-    verdict = False
-    critique = response
-    for line in response.splitlines():
-        upper = line.upper()
-        if upper.startswith("VERDICT:"):
-            verdict = "PASS" in upper
-        elif upper.startswith("CRITIQUE:"):
-            critique = line.split(":", 1)[1].strip()
-    return verdict, critique
-
-
 def _strip_code_fences(text: str) -> str:
     """Remove markdown code fences that LLMs sometimes add despite instructions."""
     if "```" not in text:
         return text
+    print("WARNING: coder returned markdown fences — stripping")
     blocks = text.split("```")
     for idx, block in enumerate(blocks):
         if idx % 2 == 1:

@@ -10,8 +10,22 @@ OPENAI_API_KEY=<your_openai_api_key>
 LOCAL_MODEL_KEY=<your_local_model_key from vLLM or similar servers>
 ```
 
+Possibly, start your local model and make it available locally. For example, if using vLLM:
+
 ```shell
 ssh -L 54112:localhost:54112 dgx2-b
+```
+
+Then, run the following command to execute a scenario:
+
+```shell
+tracs_gen scenarios/1_halt.txt --output "run/out/halt_output.txt" --backend local --max-iterations 5
+```
+
+Or run all scenarios sequentially:
+
+```shell
+bash run/all.sh
 ```
 
 ## TODOs LLM pipeline
