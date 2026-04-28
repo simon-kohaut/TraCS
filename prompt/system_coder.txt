@@ -39,7 +39,7 @@ This is how predicates can be combined:
     # Combine Rules (conjunction/and):
     near_stop_sign if distance(stop_sign) < 15.
 
-    # Combine Rules (disjunction/or) by listing all options:
+    # Combine Rules (disjunction/or) by listing all options (there is NO "or" operator in Resin, so we list all options as separate rules):
     on_basic_road if over(primary).
     on_basic_road if over(secondary).
     on_basic_road if over(tertiary).

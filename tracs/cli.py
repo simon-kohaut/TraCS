@@ -206,7 +206,6 @@ def main() -> None:
         n = len(history)
 
         console.rule(f"[green bold]Accepted after {n} iteration{'s' if n != 1 else ''}[/green bold]")
-        console.print()
 
         if args.output == "-":
             console.print(Syntax(program, "prolog", theme="monokai", line_numbers=True))

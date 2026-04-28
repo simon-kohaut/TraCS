@@ -19,7 +19,10 @@ ssh -L 54112:localhost:54112 dgx2-b
 Then, run the following command to execute a scenario:
 
 ```shell
-tracs_gen scenarios/1_halt.txt --output "run/out/halt_output.txt" --backend local --max-iterations 5
+tracs_gen scenarios/1_halt.txt --output run/out/1_halt.resin --backend local --max-iterations 5
+
+tracs_gen scenarios/1_halt.txt --output run/out/1_halt.resin --log run/out/1_halt.log --backend openai --coder-model gpt-5.4-mini --judge-model gpt-5.4-mini --max-iter
+ations 5 --verbose
 ```
 
 Or run all scenarios sequentially:
