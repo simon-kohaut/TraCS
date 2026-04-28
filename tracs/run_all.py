@@ -7,22 +7,21 @@ OUT = Path("output")
 
 # (backend, model)
 MODELS = [
-    # ("local",    "google/gemma-4-E4B-it"),
     ("local",      "google/gemma-4-31B-it"),
     # ("local",      "Qwen/Qwen3.6-27B"),
     # ("openai",     "gpt-5.5"),
-    # ("openai",     "gpt-5.4-mini"),
+    ("openai",     "gpt-5.4-mini"),
     # ("anthropic",  "claude-opus-4-7"),
     # ("anthropic",  "claude-sonnet-4-6"),
 ]
 
-SEEDS = [1]  # , 2, 3, 4, 5]
+SEEDS = [1, 2, 3, 4, 5]
 
 
 def main():
     OUT.mkdir(exist_ok=True)
 
-    for scenario in sorted(Path("scenarios").glob("4_*.txt")):
+    for scenario in sorted(Path("scenarios").glob("*.txt")):
         for backend, model in MODELS:
             model_slug = model.replace("/", "_")
             for seed in SEEDS:

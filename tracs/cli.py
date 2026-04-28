@@ -147,9 +147,9 @@ def main() -> None:
         help="Sampling temperature for the coder agent (default: 0.3).",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-q", "--quiet",
         action="store_true",
-        help=f"Show the full coder output at each iteration (default: first {_TRUNCATE_LINES} lines).",
+        help=f"Truncate coder output to {_TRUNCATE_LINES} lines per iteration.",
     )
     args = parser.parse_args()
 
@@ -169,6 +169,8 @@ def main() -> None:
         console.print(f"  Coder      : [cyan]{args.coder_model}[/cyan]")
         console.print(f"  Judge      : [cyan]{args.judge_model}[/cyan]")
         console.print(f"  Max iter.  : [cyan]{args.max_iterations}[/cyan]")
+        console.print(f"  Seed       : [cyan]{args.seed}[/cyan]")
+        console.print(f"  Coder temp.: [cyan]{args.coder_temperature}[/cyan]")
         console.print()
 
         pipeline = CoderPipeline(
@@ -181,7 +183,7 @@ def main() -> None:
         )
 
         def on_iteration(record: IterationRecord) -> None:
-            console.print(_iteration_panel(record, args.max_iterations, args.verbose))
+            console.print(_iteration_panel(record, args.max_iterations, not args.quiet))
             iterations.append({
                 "program": record.program,
                 "judge_passed": record.judge_passed,

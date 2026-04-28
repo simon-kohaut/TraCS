@@ -12,7 +12,6 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 _PROMPT_TRUNCATE_LINES = 5
-_TRUNCATE_LINES = 15
 
 
 def _truncated_text(text: str, n: int) -> list:
@@ -23,19 +22,12 @@ def _truncated_text(text: str, n: int) -> list:
     return items
 
 
-def _program_renderable(program: str, verbose: bool):
-    lines = program.splitlines()
-    if verbose or len(lines) <= _TRUNCATE_LINES:
-        return Syntax(program, "prolog", theme="ansi_dark")
-    truncated = "\n".join(lines[:_TRUNCATE_LINES])
-    return Group(
-        Syntax(truncated, "prolog", theme="ansi_dark"),
-        Text(f"  … {len(lines) - _TRUNCATE_LINES} more line(s) — use -v to show all", style="dim italic"),
-    )
+def _program_renderable(program: str):
+    return Syntax(program, "prolog", theme="ansi_dark")
 
 
-def _iteration_panel(idx: int, record: dict, n_total: int, verbose: bool) -> Panel:
-    content = [_program_renderable(record["program"], verbose), Text("")]
+def _iteration_panel(idx: int, record: dict, n_total: int) -> Panel:
+    content = [_program_renderable(record["program"]), Text("")]
 
     if record["judge_passed"]:
         content.append(Text("  Judge    ✓ PASS", style="green bold"))
@@ -69,8 +61,6 @@ def main() -> None:
         description="Pretty-print a TraCS JSON trace file.",
     )
     parser.add_argument("trace", help="Path to the .json trace file.")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help=f"Show full programs (default: first {_TRUNCATE_LINES} lines).")
     args = parser.parse_args()
 
     console = Console(highlight=False)
@@ -90,7 +80,6 @@ def main() -> None:
 
     console.rule("[bold cyan]TraCS Trace[/bold cyan]")
 
-    # Parameters panel
     def _param(label: str, value) -> Text:
         return Text.from_markup(f"  [bold]{label:<14}[/bold] [cyan]{value}[/cyan]")
 
@@ -114,14 +103,12 @@ def main() -> None:
     ]
     console.print(Panel(Group(*param_content), title="[bold]Parameters[/bold]", box=box.ROUNDED))
 
-    # Iteration panels
     for i, record in enumerate(iterations, start=1):
-        console.print(_iteration_panel(i, record, n, args.verbose))
+        console.print(_iteration_panel(i, record, n))
 
-    # Final result
     if trace["accepted"]:
         console.rule("[green bold]Accepted[/green bold]")
-        console.print(Panel(_program_renderable(trace["result"], args.verbose), box=box.ROUNDED))
+        console.print(Panel(_program_renderable(trace["result"]), box=box.ROUNDED))
     else:
         console.rule("[red bold]Not Accepted[/red bold]")
 
