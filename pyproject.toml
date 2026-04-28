@@ -29,6 +29,8 @@ dependencies = [
 
 [project.scripts]
 tracs_gen = "tracs.cli:main"
+tracs_run_all = "tracs.run_all:main"
+tracs_show = "tracs.show_trace:main"
 
 [tool.setuptools.packages.find]
 include = ["tracs*"]

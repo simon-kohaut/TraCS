@@ -9,6 +9,7 @@
 #
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -64,27 +65,25 @@ def _iteration_panel(record: IterationRecord, max_iterations: int, verbose: bool
     )
 
 
-def _log_iteration(record: IterationRecord, max_iterations: int) -> str:
-    sep = "-" * 60
-    lines = [
-        "=" * 60,
-        f"Iteration {record.iteration} / {max_iterations}",
-        "=" * 60,
-        "",
-        "Coder output:",
-        sep,
-        record.program,
-        sep,
-        "",
-        f"Judge:    {'PASS' if record.judge_passed else 'FAIL'}",
-    ]
-    if not record.judge_passed:
-        lines.append(f"Critique: {record.critique}")
-    lines += ["", f"Compiler: {'OK' if record.compiled else 'ERROR'}"]
-    if not record.compiled:
-        lines += ["Errors:", record.diagnostics]
-    lines.append("")
-    return "\n".join(lines)
+def _write_trace(output_path: Path, args, regulation: str, iterations: list, accepted: bool, result):
+    trace = {
+        "parameters": {
+            "scenario": Path(args.regulation).stem,
+            "natural_language_rule": regulation,
+            "system_coder": Path("prompt/system_coder.txt").read_text(encoding="utf-8"),
+            "system_judge": Path("prompt/system_judge.txt").read_text(encoding="utf-8"),
+            "backend": args.backend,
+            "coder_model": args.coder_model,
+            "judge_model": args.judge_model,
+            "max_iterations": args.max_iterations,
+            "seed": args.seed,
+            "coder_temperature": args.coder_temperature,
+        },
+        "iterations": iterations,
+        "accepted": accepted,
+        "result": result,
+    }
+    output_path.with_suffix(".json").write_text(json.dumps(trace, indent=2), encoding="utf-8")
 
 
 def main() -> None:
@@ -102,12 +101,7 @@ def main() -> None:
         "-o", "--output",
         default="-",
         metavar="FILE",
-        help="Output path for the accepted program (default: stdout).",
-    )
-    parser.add_argument(
-        "--log",
-        metavar="FILE",
-        help="Write a plain-text session log to this file.",
+        help="Output path for the accepted .resin program (default: stdout). Also writes a .json trace alongside.",
     )
     parser.add_argument(
         "--backend",
@@ -160,7 +154,7 @@ def main() -> None:
     args = parser.parse_args()
 
     console = Console(highlight=False)
-    log_file = open(args.log, "w", encoding="utf-8") if args.log else None
+    iterations = []
 
     try:
         try:
@@ -177,16 +171,6 @@ def main() -> None:
         console.print(f"  Max iter.  : [cyan]{args.max_iterations}[/cyan]")
         console.print()
 
-        if log_file:
-            log_file.write(
-                f"TraCS session\n"
-                f"Regulation : {args.regulation}\n"
-                f"Backend    : {args.backend}\n"
-                f"Coder      : {args.coder_model}\n"
-                f"Judge      : {args.judge_model}\n"
-                f"Max iter.  : {args.max_iterations}\n\n"
-            )
-
         pipeline = CoderPipeline(
             coder_model=args.coder_model,
             judge_model=args.judge_model,
@@ -198,9 +182,13 @@ def main() -> None:
 
         def on_iteration(record: IterationRecord) -> None:
             console.print(_iteration_panel(record, args.max_iterations, args.verbose))
-            if log_file:
-                log_file.write(_log_iteration(record, args.max_iterations))
-                log_file.flush()
+            iterations.append({
+                "program": record.program,
+                "judge_passed": record.judge_passed,
+                "critique": record.critique,
+                "compiled": record.compiled,
+                "compiler_errors": record.diagnostics,
+            })
 
         program, history = pipeline.run(regulation, on_iteration=on_iteration)
         n = len(history)
@@ -210,26 +198,17 @@ def main() -> None:
         if args.output == "-":
             console.print(Syntax(program, "prolog", theme="monokai", line_numbers=True))
         else:
-            Path(args.output).write_text(program, encoding="utf-8")
+            output_path = Path(args.output)
+            output_path.write_text(program, encoding="utf-8")
+            _write_trace(output_path, args, regulation, iterations, accepted=True, result=program)
             console.print(f"  Saved to: [green]{args.output}[/green]")
-
-        if log_file:
-            log_file.write(
-                f"\n{'=' * 60}\n"
-                f"Accepted after {n} iteration(s)\n"
-                f"{'=' * 60}\n\n"
-                f"{program}\n"
-            )
 
     except RuntimeError as exc:
         console.rule("[red bold]Pipeline Failed[/red bold]")
         console.print(f"  [red]{exc}[/red]")
-        if log_file:
-            log_file.write(f"\nPipeline failed: {exc}\n")
+        if args.output != "-":
+            _write_trace(Path(args.output), args, regulation, iterations, accepted=False, result=None)
         sys.exit(1)
-    finally:
-        if log_file:
-            log_file.close()
 
 
 if __name__ == "__main__":
