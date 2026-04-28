@@ -146,6 +146,13 @@ def main() -> None:
         help="Random seed for reproducibility (not supported by the anthropic backend).",
     )
     parser.add_argument(
+        "--coder-temperature",
+        type=float,
+        default=0.3,
+        metavar="T",
+        help="Sampling temperature for the coder agent (default: 0.3).",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help=f"Show the full coder output at each iteration (default: first {_TRUNCATE_LINES} lines).",
@@ -186,6 +193,7 @@ def main() -> None:
             backend=args.backend,
             max_iterations=args.max_iterations,
             seed=args.seed,
+            coder_temperature=args.coder_temperature,
         )
 
         def on_iteration(record: IterationRecord) -> None:
