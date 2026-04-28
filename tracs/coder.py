@@ -174,14 +174,15 @@ class CoderPipeline:
     max_iterations: int = 10
     coder_temperature: float = 0.2
     judge_temperature: float = 0.0
+    seed: Optional[int] = None
 
     def __post_init__(self):
-        self._coder = self._build_model(self.coder_model, self.coder_temperature)
-        self._judge = self._build_model(self.judge_model, self.judge_temperature)
+        self._coder = self._build_model(self.coder_model, self.coder_temperature, self.seed)
+        self._judge = self._build_model(self.judge_model, self.judge_temperature, self.seed)
 
-    def _build_model(self, model: str, temperature: float):
+    def _build_model(self, model: str, temperature: float, seed: Optional[int]):
         if self.backend == "openai":
-            return ChatOpenAI(model=model, temperature=temperature)
+            return ChatOpenAI(model=model, temperature=temperature, seed=seed)
         if self.backend == "anthropic":
             return ChatAnthropic(model=model, temperature=temperature, max_tokens=4096)
         if self.backend == "local":
@@ -190,8 +191,9 @@ class CoderPipeline:
                 base_url=getenv("LOCAL_MODEL_BASE_URL", "http://host.docker.internal:54112/v1"),
                 api_key=getenv("LOCAL_MODEL_KEY", ""),
                 temperature=temperature,
+                seed=seed,
             )
-        return ChatOllama(model=model, temperature=temperature)
+        return ChatOllama(model=model, temperature=temperature, seed=seed)
 
     def run(
         self,

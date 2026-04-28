@@ -139,6 +139,13 @@ def main() -> None:
         help="Maximum refinement iterations (default: 10).",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Random seed for reproducibility (not supported by the anthropic backend).",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help=f"Show the full coder output at each iteration (default: first {_TRUNCATE_LINES} lines).",
@@ -178,6 +185,7 @@ def main() -> None:
             judge_model=args.judge_model,
             backend=args.backend,
             max_iterations=args.max_iterations,
+            seed=args.seed,
         )
 
         def on_iteration(record: IterationRecord) -> None:
