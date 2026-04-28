@@ -1,1 +1,0 @@
-Every vehicle needs to keep a safety distance of 10m from the others.

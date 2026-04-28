@@ -1,8 +1,0 @@
-- Changes needed:
-  - left_primary -> primary_positive_buffer (primary_positive_offset / primary_left_buffer)
-  - Removed service and unclassified road
-  - add vehicle and pedestrian as features
-
-- Probabilistic predicates
-- scenarios:
-    - vielleicht irgendwann: andere autos explizit modellieren -> cool weil first oder

@@ -19,46 +19,46 @@ from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 
 
-_CODER_SYSTEM = """\
-You are an expert in probabilistic logic programming using the Resin language.
-Given a natural-language description of traffic regulations and a library of
-probabilistic spatial relations, generate a Resin program that formally encodes
-the described rules using only the primitives provided by that library.
+# _CODER_SYSTEM = """\
+# You are an expert in probabilistic logic programming using the Resin language.
+# Given a natural-language description of traffic regulations and a library of
+# probabilistic spatial relations, generate a Resin program that formally encodes
+# the described rules using only the primitives provided by that library.
 
-Here is an example Resin program:
-    permitted if over(park).
-    permitted if over(water).
+# Here is an example Resin program:
+#     permitted if over(park).
+#     permitted if over(water).
 
-    road_safety if distance(primary) < 35.0.
-    road_safety if distance(secondary) < 15.0.
+#     road_safety if distance(primary) < 35.0.
+#     road_safety if distance(secondary) < 15.0.
 
-    agent_safety if distance(vessel) > 100.0 and distance(uas) > 100.0.
+#     agent_safety if distance(vessel) > 100.0 and distance(uas) > 100.0.
 
-    landscape if distance(hospital) > 200.0 and road_safety and agent_safety.
-    landscape if permitted and agent_safety.
+#     landscape if distance(hospital) > 200.0 and road_safety and agent_safety.
+#     landscape if permitted and agent_safety.
 
-Output ONLY the raw Resin program. No prose, no markdown fences.
-"""
+# Output ONLY the raw Resin program. No prose, no markdown fences.
+# """
 
-_JUDGE_SYSTEM = """\
-You are an expert in traffic regulations and probabilistic logic programming.
-Given a natural-language regulation and a candidate Resin program, evaluate
-whether the program faithfully encodes the regulation. Identify logical gaps,
-missing constraints, or misrepresentations.
+# _JUDGE_SYSTEM = """\
+# You are an expert in traffic regulations and probabilistic logic programming.
+# Given a natural-language regulation and a candidate Resin program, evaluate
+# whether the program faithfully encodes the regulation. Identify logical gaps,
+# missing constraints, or misrepresentations.
 
-The regulations aim to express rules for a single agent relative to it and its environment.
-Do not expect rules to reason about an entire traffic space and all combinations of agents.
-All relations such as distnace(T) imply that they hold for ALL environment features of that type T.
+# The regulations aim to express rules for a single agent relative to it and its environment.
+# Do not expect rules to reason about an entire traffic space and all combinations of agents.
+# All relations such as distnace(T) imply that they hold for ALL environment features of that type T.
 
-Respond in exactly this format:
-VERDICT: PASS
-CRITIQUE: OK
+# Respond in exactly this format:
+# VERDICT: PASS
+# CRITIQUE: OK
 
-or
+# or
 
-VERDICT: FAIL
-CRITIQUE: <concise explanation of what is wrong or missing>
-"""
+# VERDICT: FAIL
+# CRITIQUE: <concise explanation of what is wrong or missing>
+# """
 
 
 _IDENTIFIER    = r'[a-zA-Z_][a-zA-Z0-9_]*'
@@ -196,7 +196,6 @@ class CoderPipeline:
     def run(
         self,
         regulation: str,
-        library: str,
         on_iteration: Optional[Callable[["IterationRecord"], None]] = None,
     ) -> tuple[str, list["IterationRecord"]]:
         """Run the pipeline to produce an accepted Resin program.
@@ -209,7 +208,7 @@ class CoderPipeline:
         feedback: Optional[str] = None
 
         for i in range(self.max_iterations):
-            program = self._call_coder(regulation, library, feedback)
+            program = self._call_coder(regulation, feedback)
             judge_passed, critique = self._call_judge(regulation, program)
             compiled, diagnostics = compile_resin(program)
 
@@ -235,15 +234,19 @@ class CoderPipeline:
             f"Pipeline did not converge after {self.max_iterations} iterations."
         )
 
-    def _call_coder(self, regulation: str, library: str, feedback: Optional[str]) -> str:
+    def _call_coder(self, regulation: str, feedback: Optional[str]) -> str:
+        with open("prompt/system_coder.txt") as f:
+            _CODER_SYSTEM = f.read()
         messages = [
             SystemMessage(content=_CODER_SYSTEM),
-            HumanMessage(content=_coder_prompt(regulation, library, feedback)),
+            HumanMessage(content=_coder_prompt(regulation, feedback)),
         ]
         response = self._coder.invoke(messages).content.strip()
         return _strip_code_fences(response)
 
     def _call_judge(self, regulation: str, program: str) -> tuple[bool, str]:
+        with open("prompt/system_judge.txt") as f:
+            _JUDGE_SYSTEM = f.read()
         messages = [
             SystemMessage(content=_JUDGE_SYSTEM),
             HumanMessage(content=_judge_prompt(regulation, program)),
@@ -252,11 +255,10 @@ class CoderPipeline:
         return _parse_judge_response(response)
 
 
-def _coder_prompt(regulation: str, library: str, feedback: Optional[str]) -> str:
+def _coder_prompt(regulation: str, feedback: Optional[str]) -> str:
     prompt = (
-        f"Spatial relation library:\n{library}\n\n"
         f"Traffic regulation:\n{regulation}\n\n"
-        "Generate a Resin program that encodes this regulation using the library above."
+        "Generate a Resin program that encodes this regulation."
     )
     if feedback:
         prompt += (

@@ -24,7 +24,7 @@ dependencies = [
     "langchain[anthropic,openai]>=0.3",
     "langchain-ollama>=0.2",
     "python-dotenv>=1.0",
-    "rich>=13.0",
+    "rich>=15.0",
 ]
 
 [project.scripts]

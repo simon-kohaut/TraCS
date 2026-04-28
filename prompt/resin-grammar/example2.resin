@@ -1,0 +1,13 @@
+# Incoming streams of data
+rain <- source("/rain", Probability).
+clearance <- source("/lidar", Density).
+speed <- source("/imu", Number).
+
+# Probabilistic First-Order logic
+safe if clearance > 10.0 and
+not rain and speed < 20.0.
+safe if clearance > 10.0 and
+rain and speed < 10.0.
+
+# Target signal of continual interest
+safe -> target("/safety").

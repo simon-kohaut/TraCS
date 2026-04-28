@@ -1,0 +1,53 @@
+// Resin: stream-oriented probabilistic logic DSL.
+// A program is one or more statements, each terminated by ".".
+
+start: statement+
+
+statement: source_decl
+         | target_decl
+         | rule
+
+source_decl: head ASSIGN "source" "(" STRING "," TYPE ")" "."
+target_decl: head ARROW  "target" "(" STRING ")" "."
+rule:        head "if" body "."
+
+head: atom
+
+body: literal ("and" literal)*
+
+?literal: atom
+        | neg_literal
+        | comparison
+
+neg_literal: "not" atom
+
+comparison: term (LE | GE | EQ | NE | LT | GT) term
+
+atom: NAME "(" args ")"   -> compound_atom
+    | NAME                -> simple_atom
+
+args: term ("," term)*
+
+?term: atom
+     | NUMBER
+     | STRING
+
+ASSIGN: "<-"
+ARROW:  "->"
+LE:     "<="
+GE:     ">="
+EQ:     "=="
+NE:     "!="
+LT:     "<"
+GT:     ">"
+TYPE:   "Boolean" | "Number" | "Probability" | "Density"
+
+NAME:   /[a-z_][a-zA-Z0-9_]*/
+NUMBER: /[0-9]+(\.[0-9]+)?/
+STRING: /"[^"\n]*"/
+
+COMMENT: /#[^\n]*/
+%ignore COMMENT
+
+%import common.WS
+%ignore WS

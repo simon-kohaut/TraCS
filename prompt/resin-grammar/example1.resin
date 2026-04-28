@@ -1,0 +1,8 @@
+a <- source("/a", Probability).
+b <- source("/b", Probability).
+c <- source("/c", Probability).
+
+d if a and b and not c.
+d if not a and b and c.
+
+d -> target("/d").

@@ -99,12 +99,6 @@ def main() -> None:
         help="Text file containing the natural-language regulation description.",
     )
     parser.add_argument(
-        "-l", "--library",
-        required=True,
-        metavar="FILE",
-        help="Resin spatial relation library (.txt file).",
-    )
-    parser.add_argument(
         "-o", "--output",
         default="-",
         metavar="FILE",
@@ -127,15 +121,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--coder-model",
-        default="qwen2.5:7b-instruct",
+        default="google/gemma-4-E4B-it",
         metavar="MODEL",
-        help="Model name for the coder agent (default: qwen2.5:7b-instruct).",
+        help="Model name for the coder agent (default: google/gemma-4-E4B-it).",
     )
     parser.add_argument(
         "--judge-model",
-        default="qwen2.5:7b-instruct",
+        default="google/gemma-4-E4B-it",
         metavar="MODEL",
-        help="Model name for the judge agent (default: qwen2.5:7b-instruct).",
+        help="Model name for the judge agent (default: google/gemma-4-E4B-it).",
     )
     parser.add_argument(
         "--max-iterations",
@@ -157,14 +151,12 @@ def main() -> None:
     try:
         try:
             regulation = Path(args.regulation).read_text(encoding="utf-8").strip()
-            library = Path(args.library).read_text(encoding="utf-8").strip()
         except FileNotFoundError as exc:
             console.print(f"[red]Error:[/red] {exc}")
             sys.exit(1)
 
         console.rule("[bold cyan]TraCS[/bold cyan]")
         console.print(f"  Regulation : [cyan]{args.regulation}[/cyan]")
-        console.print(f"  Library    : [cyan]{args.library}[/cyan]")
         console.print(f"  Backend    : [cyan]{args.backend}[/cyan]")
         console.print(f"  Coder      : [cyan]{args.coder_model}[/cyan]")
         console.print(f"  Judge      : [cyan]{args.judge_model}[/cyan]")
@@ -175,7 +167,6 @@ def main() -> None:
             log_file.write(
                 f"TraCS session\n"
                 f"Regulation : {args.regulation}\n"
-                f"Library    : {args.library}\n"
                 f"Backend    : {args.backend}\n"
                 f"Coder      : {args.coder_model}\n"
                 f"Judge      : {args.judge_model}\n"
@@ -195,7 +186,7 @@ def main() -> None:
                 log_file.write(_log_iteration(record, args.max_iterations))
                 log_file.flush()
 
-        program, history = pipeline.run(regulation, library, on_iteration=on_iteration)
+        program, history = pipeline.run(regulation, on_iteration=on_iteration)
         n = len(history)
 
         console.rule(f"[green bold]Accepted after {n} iteration{'s' if n != 1 else ''}[/green bold]")

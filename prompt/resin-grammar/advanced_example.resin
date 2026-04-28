@@ -1,0 +1,27 @@
+# Spatial relation sources
+over(park) <- source("/star_map/over/park", Probability).
+over(bay) <- source("/star_map/over/bay", Probability).
+distance(operator) <- source("/star_map/distance/operator", Density).
+distance(service) <- source("/star_map/distance/service", Density).
+distance(primary) <- source("/star_map/distance/primary", Density).
+distance(secondary) <- source("/star_map/distance/secondary", Density).
+distance(tertiary) <- source("/star_map/distance/tertiary", Density).
+distance(rail) <- source("/star_map/distance/rail", Density).
+distance(crossing) <- source("/star_map/distance/crossing", Density).
+
+# Visual line of sight: within the operator's range, or over a bay at extended range
+vlos if distance(operator) < 500.0.
+vlos if over(bay) and distance(operator) < 400.0.
+
+# Permits based on proximity to infrastructure or green space
+permits if over(park).
+permits if distance(service) < 15.0.
+permits if distance(primary) < 15.0.
+permits if distance(secondary) < 10.0.
+permits if distance(tertiary) < 5.0.
+permits if distance(rail) < 5.0.
+permits if distance(crossing) < 5.0.
+
+# A valid mission requires line of sight and local permits
+landscape if vlos and permits.
+landscape -> target("/landscape").
