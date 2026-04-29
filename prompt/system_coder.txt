@@ -25,6 +25,7 @@ Available predicates for each feature type "X" are:
 - distance(X): the density of the distance to the nearest feature of type X in meters.
 - crosses(X): the probability that the vehicles's path crosses a feature of type X.
 - follows(X): the probability that the vehicles's path follows a line-string feature of type X, such as a road.
+- opposes(X): the inverse of follows(X).
 
 Available values:
 - speed: the current speed of the vehicle in km/h.

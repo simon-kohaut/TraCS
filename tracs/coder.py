@@ -20,14 +20,17 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 
-_IDENTIFIER    = r'[a-zA-Z_][a-zA-Z0-9_]*'
-_NUMBER        = r'[+-]?\d+(?:\.\d*)?'
-_ARG_LIST      = rf'(?:{_IDENTIFIER}|{_NUMBER})(?:\s*,\s*(?:{_IDENTIFIER}|{_NUMBER}))*'
-_PREDICATE     = rf'{_IDENTIFIER}(?:\s*\(\s*(?:{_ARG_LIST})?\s*\))?'
-_COMPARISON_OP = r'(?:[<>]=?|[!=]=)'
-_CONDITION     = rf'(?:{_PREDICATE})(?:\s*{_COMPARISON_OP}\s*{_NUMBER})?'
+_IDENTIFIER = r'[a-zA-Z_][a-zA-Z0-9_]*'
+_NUMBER = r'[+-]?\d+(?:\.\d*)?'
+_ARG_LIST = rf'(?:{_IDENTIFIER}|{_NUMBER})(?:\s*,\s*(?:{_IDENTIFIER}|{_NUMBER}))*'
+_PREDICATE = rf'{_IDENTIFIER}(?:\s*\(\s*(?:{_ARG_LIST})?\s*\))?'
+_COMPARISON_OP = r'(?:[<>]=?|==)'
+_CONDITION = (
+    rf'(?:not\s+)?(?:{_PREDICATE})(?:\s*{_COMPARISON_OP}\s*{_NUMBER})?'
+    rf'|{_NUMBER}\s*{_COMPARISON_OP}\s*(?:{_PREDICATE})'
+)
 
-_HEAD_RE      = re.compile(rf'^\s*{_PREDICATE}\s*$')
+_HEAD_RE = re.compile(rf'^\s*{_PREDICATE}\s*$')
 _CONDITION_RE = re.compile(rf'^\s*{_CONDITION}\s*$')
 
 
@@ -77,7 +80,7 @@ def _split_resin_clauses(text: str) -> list[tuple[str, int]]:
     clauses = []
     prev_end = 0
     for m in re.finditer(r'\.(?!\d)', text):
-        clause = text[prev_end : m.start()]
+        clause = text[prev_end: m.start()]
         line_num = text[:prev_end].count("\n") + 1
         clauses.append((clause, line_num))
         prev_end = m.end()
@@ -141,23 +144,30 @@ class CoderPipeline:
     seed: Optional[int] = None
 
     def __post_init__(self):
-        self._coder = self._build_model(self.coder_model, self.coder_temperature, self.seed)
-        self._judge = self._build_model(self.judge_model, self.judge_temperature, self.seed).with_structured_output(JudgeOutput)
+        self._coder = self._build_model(
+            self.coder_model, self.coder_temperature, self.seed)
+        self._judge = self._build_model(
+            self.judge_model, self.judge_temperature, self.seed).with_structured_output(JudgeOutput)
 
     def _build_model(self, model: str, temperature: float, seed: Optional[int]):
-        if self.backend == "openai":
-            return ChatOpenAI(model=model, temperature=temperature, seed=seed)
-        if self.backend == "anthropic":
-            return ChatAnthropic(model=model, temperature=temperature, max_tokens=4096)
-        if self.backend == "local":
-            return ChatOpenAI(
-                model=model,
-                base_url=getenv("LOCAL_MODEL_BASE_URL", "http://host.docker.internal:54112/v1"),
-                api_key=getenv("LOCAL_MODEL_KEY", ""),
-                temperature=temperature,
-                seed=seed,
-            )
-        return ChatOllama(model=model, temperature=temperature, seed=seed)
+        match self.backend:
+            case "openai":
+                return ChatOpenAI(model=model, temperature=temperature, seed=seed)
+            case "anthropic":
+                return ChatAnthropic(model=model, temperature=temperature, max_tokens=4096)
+            case "local":
+                return ChatOpenAI(
+                    model=model,
+                    base_url=getenv("LOCAL_MODEL_BASE_URL",
+                                    "http://host.docker.internal:54112/v1"),
+                    api_key=getenv("LOCAL_MODEL_KEY", ""),
+                    temperature=temperature,
+                    seed=seed,
+                )
+            case "ollama":
+                return ChatOllama(model=model, temperature=temperature, seed=seed)
+            case _:
+                raise ValueError(f"Unknown backend: {self.backend!r}")
 
     def run(
         self,
@@ -171,7 +181,7 @@ class CoderPipeline:
         the full iteration log. Raises RuntimeError if max_iterations is reached.
         """
         history: list[IterationRecord] = []
-        feedback: Optional[str] = None
+        feedback: Optional[tuple[str, str]] = None
 
         for i in range(self.max_iterations):
             program = self._call_coder(regulation, feedback)
@@ -194,7 +204,8 @@ class CoderPipeline:
             if judge_passed and compiled:
                 return program, history
 
-            feedback = _build_feedback(judge_passed, critique, compiled, diagnostics)
+            feedback = _build_feedback(
+                judge_passed, critique, compiled, diagnostics, program)
 
         raise RuntimeError(
             f"Pipeline did not converge after {self.max_iterations} iterations."
@@ -222,10 +233,7 @@ class CoderPipeline:
 
 
 def _coder_prompt(regulation: str, feedback: Optional[str]) -> str:
-    prompt = (
-        f"Traffic regulation:\n{regulation}\n\n"
-        "Generate a Resin program that encodes this regulation."
-    )
+    prompt = f"Traffic regulation (natural language):\n{regulation}"
     if feedback:
         prompt += (
             "\n\nYour previous attempt was rejected. "
@@ -236,20 +244,22 @@ def _coder_prompt(regulation: str, feedback: Optional[str]) -> str:
 
 def _judge_prompt(regulation: str, program: str) -> str:
     return (
-        f"Traffic regulation (natural language):\n{regulation}\n\n"
-        f"Candidate Resin program:\n{program}\n\n"
-        "Does this program faithfully encode the regulation?"
+        f"Traffic regulation (natural language):\n{regulation}"
+        "\n\n"
+        f"Candidate Resin program:\n{program}"
     )
 
 
 def _build_feedback(
-    judge_passed: bool, critique: str, compiled: bool, diagnostics: str
-) -> str:
+    judge_passed: bool, critique: str, compiled: bool, diagnostics: str, program: str
+) -> tuple[str, str]:
     parts = []
     if not judge_passed:
         parts.append(f"Alignment critique:\n{critique}")
     if not compiled:
         parts.append(f"Compiler errors:\n{diagnostics}")
+    if parts:
+        parts.append(f"Faulty program:\n{program}")
     return "\n\n".join(parts)
 
 

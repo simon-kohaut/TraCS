@@ -62,6 +62,12 @@ Each run produces a trace derived from `--output`: `<stem>.json`.
 | `accepted` | Whether the pipeline converged |
 | `result` | Accepted program string, or `null` on failure |
 
+### Showing all traces
+
+```shell
+for f in output/*.json; do tracs_show "$f"; done
+```
+
 ## TODOs LLM pipeline
 
 - Changes needed:

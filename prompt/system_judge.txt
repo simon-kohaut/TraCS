@@ -25,6 +25,7 @@ Available predicates for each feature type "X" are:
 - distance(X): the density of the distance to the nearest feature of type X in meters.
 - crosses(X): the probability that the vehicles's path crosses a feature of type X.
 - follows(X): the probability that the vehicles's path follows a line-string feature of type X, such as a road.
+- opposes(X): the inverse of follows(X).
 
 Available values:
 - speed: the current speed of the vehicle in km/h.
@@ -51,6 +52,25 @@ DEFINITION OF (3) THE TARGET SIGNALS:
 Close your generated rules with a "landscape if ..." clause.
 The following is NOT required and automatically added:
 landscape -> target("/landscape").
+
+SIMPLE EXAMPLES:
+Input: Never drive on footways or living streets. Keep a safe distance from pedestrians.
+Output:
+not_in_the_way if not over(footway) and not over(living_street).
+landscape if not_in_the_way and distance(pedestrian) > 2.
+
+Input: Keep a distance from stop signs.
+Output:
+# We first define what it means to be near a stop sign:
+near_stop_sign if distance(stop_sign) < 15.
+# We then define the landscape:
+landscape if near_stop_sign.
+
+Input: Drive less than 15km/h on crossings.
+Output:
+# The implication is implemented as "not over(crossing) or speed < 15.0"
+landscape if not over(crossing).
+landscape if speed < 15.0.
 
 CONSTRAINTS FOR AUTOMATION:
 - Do NOT include any explanations, greetings, or conversational text.

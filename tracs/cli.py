@@ -29,10 +29,10 @@ _TRUNCATE_LINES = 15
 def _program_renderable(program: str, verbose: bool):
     lines = program.splitlines()
     if verbose or len(lines) <= _TRUNCATE_LINES:
-        return Syntax(program, "prolog", theme="ansi_dark")
+        return Syntax(program, "prolog", theme="ansi_dark", word_wrap=True)
     truncated = "\n".join(lines[:_TRUNCATE_LINES])
     return Group(
-        Syntax(truncated, "prolog", theme="ansi_dark"),
+        Syntax(truncated, "prolog", theme="ansi_dark", word_wrap=True),
         Text(f"  … {len(lines) - _TRUNCATE_LINES} more line(s) — use -v to show all", style="dim italic"),
     )
 
@@ -198,7 +198,7 @@ def main() -> None:
         console.rule(f"[green bold]Accepted after {n} iteration{'s' if n != 1 else ''}[/green bold]")
 
         if args.output == "-":
-            console.print(Syntax(program, "prolog", theme="monokai", line_numbers=True))
+            console.print(Syntax(program, "prolog", theme="monokai", line_numbers=True, word_wrap=True))
         else:
             output_path = Path(args.output)
             output_path.write_text(program, encoding="utf-8")

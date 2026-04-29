@@ -23,7 +23,7 @@ def _truncated_text(text: str, n: int) -> list:
 
 
 def _program_renderable(program: str):
-    return Syntax(program, "prolog", theme="ansi_dark")
+    return Syntax(program, "prolog", theme="ansi_dark", word_wrap=True)
 
 
 def _iteration_panel(idx: int, record: dict, n_total: int) -> Panel:
