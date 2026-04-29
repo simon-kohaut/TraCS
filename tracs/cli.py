@@ -50,9 +50,9 @@ def _iteration_panel(record: IterationRecord, max_iterations: int, verbose: bool
     content.append(Text(""))
 
     if record.compiled:
-        content.append(Text("  Compiler ✓ OK", style="green bold"))
+        content.append(Text("  Compiler ✓ PASS", style="green bold"))
     else:
-        content.append(Text("  Compiler ✗ ERROR", style="red bold"))
+        content.append(Text("  Compiler ✗ FAIL", style="red bold"))
         for line in record.diagnostics.splitlines():
             content.append(Text(f"    {line}", style="red"))
 
@@ -106,10 +106,11 @@ def main() -> None:
     parser.add_argument(
         "--backend",
         default="ollama",
-        choices=["ollama", "openai", "anthropic", "local"],
+        choices=["ollama", "openai", "anthropic", "google", "local"],
         help=(
             "LLM backend to use (default: ollama). "
             "'openai' reads OPENAI_API_KEY, 'anthropic' reads ANTHROPIC_API_KEY, "
+            "'google' reads GOOGLE_API_KEY, "
             "'local' reads LOCAL_MODEL_BASE_URL and LOCAL_MODEL_KEY from .env."
         ),
     )

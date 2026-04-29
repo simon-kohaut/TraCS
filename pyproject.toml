@@ -22,9 +22,13 @@ classifiers = [
 dependencies = [
     "promis>=4.0.0.dev1",
     "langchain[anthropic,openai]>=0.3",
+    "langchain-google-genai>=2.0",
     "langchain-ollama>=0.2",
     "python-dotenv>=1.0",
     "rich>=15.0",
+    "ipykernel",
+    "seaborn",
+    "statsmodels",
 ]
 
 [project.scripts]

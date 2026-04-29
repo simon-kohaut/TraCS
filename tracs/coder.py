@@ -15,23 +15,24 @@ from typing import Callable, Optional
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 
-_IDENTIFIER = r'[a-zA-Z_][a-zA-Z0-9_]*'
-_NUMBER = r'[+-]?\d+(?:\.\d*)?'
-_ARG_LIST = rf'(?:{_IDENTIFIER}|{_NUMBER})(?:\s*,\s*(?:{_IDENTIFIER}|{_NUMBER}))*'
-_PREDICATE = rf'{_IDENTIFIER}(?:\s*\(\s*(?:{_ARG_LIST})?\s*\))?'
-_COMPARISON_OP = r'(?:[<>]=?|==)'
+_IDENTIFIER = r"[a-zA-Z_][a-zA-Z0-9_]*"
+_NUMBER = r"[+-]?\d+(?:\.\d*)?"
+_ARG_LIST = rf"(?:{_IDENTIFIER}|{_NUMBER})(?:\s*,\s*(?:{_IDENTIFIER}|{_NUMBER}))*"
+_PREDICATE = rf"{_IDENTIFIER}(?:\s*\(\s*(?:{_ARG_LIST})?\s*\))?"
+_COMPARISON_OP = r"(?:[<>]=?|==)"
 _CONDITION = (
-    rf'(?:not\s+)?(?:{_PREDICATE})(?:\s*{_COMPARISON_OP}\s*{_NUMBER})?'
-    rf'|{_NUMBER}\s*{_COMPARISON_OP}\s*(?:{_PREDICATE})'
+    rf"(?:not\s+)?(?:{_PREDICATE})(?:\s*{_COMPARISON_OP}\s*{_NUMBER})?"
+    rf"|{_NUMBER}\s*{_COMPARISON_OP}\s*(?:{_PREDICATE})"
 )
 
-_HEAD_RE = re.compile(rf'^\s*{_PREDICATE}\s*$')
-_CONDITION_RE = re.compile(rf'^\s*{_CONDITION}\s*$')
+_HEAD_RE = re.compile(rf"^\s*{_PREDICATE}\s*$")
+_CONDITION_RE = re.compile(rf"^\s*{_CONDITION}\s*$")
 
 
 def compile_resin(program: str) -> tuple[bool, str]:
@@ -41,7 +42,7 @@ def compile_resin(program: str) -> tuple[bool, str]:
     # Strip inline comments
     clean_lines = []
     for line in program.splitlines():
-        idx = line.find('#')
+        idx = line.find("#")
         clean_lines.append(line[:idx] if idx != -1 else line)
     clean_text = "\n".join(clean_lines)
 
@@ -79,8 +80,8 @@ def _split_resin_clauses(text: str) -> list[tuple[str, int]]:
     """
     clauses = []
     prev_end = 0
-    for m in re.finditer(r'\.(?!\d)', text):
-        clause = text[prev_end: m.start()]
+    for m in re.finditer(r"\.(?!\d)", text):
+        clause = text[prev_end : m.start()]
         line_num = text[:prev_end].count("\n") + 1
         clauses.append((clause, line_num))
         prev_end = m.end()
@@ -92,15 +93,15 @@ def _split_resin_clauses(text: str) -> list[tuple[str, int]]:
 
 def _clause_head(clause: str) -> str:
     """Return the head predicate name of a clause."""
-    head_part = re.split(r'\bif\b', clause, maxsplit=1)[0].strip()
-    m = re.match(r'([a-zA-Z_][a-zA-Z0-9_]*)', head_part)
+    head_part = re.split(r"\bif\b", clause, maxsplit=1)[0].strip()
+    m = re.match(r"([a-zA-Z_][a-zA-Z0-9_]*)", head_part)
     return m.group(1) if m else ""
 
 
 def _check_clause(clause: str) -> list[str]:
     """Validate one clause; return a list of error strings."""
     errors = []
-    parts = re.split(r'\bif\b', clause, maxsplit=1)
+    parts = re.split(r"\bif\b", clause, maxsplit=1)
     head = parts[0].strip()
     body = parts[1].strip() if len(parts) == 2 else None
 
@@ -108,7 +109,7 @@ def _check_clause(clause: str) -> list[str]:
         errors.append(f"Invalid head: '{head}'")
 
     if body is not None:
-        for cond in re.split(r'\band\b', body):
+        for cond in re.split(r"\band\b", body):
             cond = cond.strip()
             if cond and not _CONDITION_RE.match(cond):
                 errors.append(f"Invalid condition: '{cond}'")
@@ -145,21 +146,28 @@ class CoderPipeline:
 
     def __post_init__(self):
         self._coder = self._build_model(
-            self.coder_model, self.coder_temperature, self.seed)
+            self.coder_model, self.coder_temperature, self.seed
+        )
         self._judge = self._build_model(
-            self.judge_model, self.judge_temperature, self.seed).with_structured_output(JudgeOutput)
+            self.judge_model, self.judge_temperature, self.seed
+        ).with_structured_output(JudgeOutput)
 
     def _build_model(self, model: str, temperature: float, seed: Optional[int]):
         match self.backend:
             case "openai":
                 return ChatOpenAI(model=model, temperature=temperature, seed=seed)
             case "anthropic":
-                return ChatAnthropic(model=model, temperature=temperature, max_tokens=4096)
+                return ChatAnthropic(
+                    model=model, temperature=temperature, max_tokens=4096
+                )
+            case "google":
+                return ChatGoogleGenerativeAI(model=model, temperature=temperature)
             case "local":
                 return ChatOpenAI(
                     model=model,
-                    base_url=getenv("LOCAL_MODEL_BASE_URL",
-                                    "http://host.docker.internal:54112/v1"),
+                    base_url=getenv(
+                        "LOCAL_MODEL_BASE_URL", "http://host.docker.internal:54112/v1"
+                    ),
                     api_key=getenv("LOCAL_MODEL_KEY", ""),
                     temperature=temperature,
                     seed=seed,
@@ -205,7 +213,8 @@ class CoderPipeline:
                 return program, history
 
             feedback = _build_feedback(
-                judge_passed, critique, compiled, diagnostics, program)
+                judge_passed, critique, compiled, diagnostics, program
+            )
 
         raise RuntimeError(
             f"Pipeline did not converge after {self.max_iterations} iterations."
@@ -218,8 +227,8 @@ class CoderPipeline:
             SystemMessage(content=_CODER_SYSTEM),
             HumanMessage(content=_coder_prompt(regulation, feedback)),
         ]
-        response = self._coder.invoke(messages).content.strip()
-        return _strip_code_fences(response)
+        content = self._coder.invoke(messages).content
+        return _strip_code_fences(_content_to_str(content).strip())
 
     def _call_judge(self, regulation: str, program: str) -> tuple[bool, str]:
         with open("prompt/system_judge.txt") as f:
@@ -263,6 +272,22 @@ def _build_feedback(
     return "\n\n".join(parts)
 
 
+def _content_to_str(content) -> str:
+    """Normalize a LangChain message content to a flat string.
+
+    OpenAI/Anthropic return a string; Gemini returns a list of content parts.
+    """
+    if isinstance(content, str):
+        return content
+    parts = []
+    for part in content:
+        if isinstance(part, str):
+            parts.append(part)
+        elif isinstance(part, dict):
+            parts.append(part.get("text", ""))
+    return "".join(parts)
+
+
 def _strip_code_fences(text: str) -> str:
     """Remove markdown code fences that LLMs sometimes add despite instructions."""
     if "```" not in text:
@@ -272,7 +297,7 @@ def _strip_code_fences(text: str) -> str:
     for idx, block in enumerate(blocks):
         if idx % 2 == 1:
             lines = block.splitlines()
-            # Drop the language tag line (e.g. "prolog") if present
+            # Drop the language tag line (e.g. "resin") if present
             if lines and not lines[0].strip().startswith(("%", ":-", "?")):
                 lines = lines[1:]
             return "\n".join(lines).strip()

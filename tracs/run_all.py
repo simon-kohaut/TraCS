@@ -10,9 +10,10 @@ MODELS = [
     ("local",      "google/gemma-4-31B-it"),
     # ("local",      "Qwen/Qwen3.6-27B"),
     # ("openai",     "gpt-5.5"),
-    ("openai",     "gpt-5.4-mini"),
+    # ("openai",     "gpt-5.4-mini"),
     # ("anthropic",  "claude-opus-4-7"),
     # ("anthropic",  "claude-sonnet-4-6"),
+    # ("google",     "gemini-3.1-pro-preview"),
 ]
 
 SEEDS = [1, 2, 3, 4, 5]
@@ -33,6 +34,6 @@ def main():
                     "--coder-model", model,
                     "--judge-model", model,
                     "--seed", str(seed),
-                    # "--temperature", "0.3",
+                    "--temperature", "0.3",
                     "--max-iterations", "10",
                 ], check=False)

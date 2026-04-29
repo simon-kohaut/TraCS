@@ -7,11 +7,10 @@
             "request": "launch",
             "module": "tracs.cli",
             "args": [
-                "examples/regulations.txt",
-                "--library", "examples/library.txt",
+                "scenarios/1_halt.txt",
                 "--backend", "local",
-                "--coder-model", "google/gemma-4-E4B-it",
-                "--judge-model", "google/gemma-4-E4B-it",
+                "--coder-model", "google/gemma-4-31B-it",
+                "--judge-model", "google/gemma-4-31B-it",
                 "--max-iterations", "3"
             ],
             "cwd": "${workspaceFolder}",

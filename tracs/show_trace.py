@@ -40,9 +40,9 @@ def _iteration_panel(idx: int, record: dict, n_total: int) -> Panel:
 
     compiler_errors = record.get("compiler_errors", "")
     if record["compiled"]:
-        content.append(Text("  Compiler ✓ OK", style="green bold"))
+        content.append(Text("  Compiler ✓ PASS", style="green bold"))
     else:
-        content.append(Text("  Compiler ✗ ERROR", style="red bold"))
+        content.append(Text("  Compiler ✗ FAIL", style="red bold"))
         for line in compiler_errors.splitlines():
             content.append(Text(f"    {line}", style="red"))
 
