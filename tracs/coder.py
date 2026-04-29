@@ -8,113 +8,19 @@
 # If not, see https://opensource.org/license/bsd-3-clause/.
 #
 
-import re
 from dataclasses import dataclass
 from os import getenv
 from typing import Callable, Optional
 
+from langchain.chat_models import BaseChatModel
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-
-_IDENTIFIER = r"[a-zA-Z_][a-zA-Z0-9_]*"
-_NUMBER = r"[+-]?\d+(?:\.\d*)?"
-_ARG_LIST = rf"(?:{_IDENTIFIER}|{_NUMBER})(?:\s*,\s*(?:{_IDENTIFIER}|{_NUMBER}))*"
-_PREDICATE = rf"{_IDENTIFIER}(?:\s*\(\s*(?:{_ARG_LIST})?\s*\))?"
-_COMPARISON_OP = r"(?:[<>]=?|==)"
-_CONDITION = (
-    rf"(?:not\s+)?(?:{_PREDICATE})(?:\s*{_COMPARISON_OP}\s*{_NUMBER})?"
-    rf"|{_NUMBER}\s*{_COMPARISON_OP}\s*(?:{_PREDICATE})"
-)
-
-_HEAD_RE = re.compile(rf"^\s*{_PREDICATE}\s*$")
-_CONDITION_RE = re.compile(rf"^\s*{_CONDITION}\s*$")
-
-
-def compile_resin(program: str) -> tuple[bool, str]:
-    """Check Resin program syntax. Returns (success, diagnostics)."""
-    errors = []
-
-    # Strip inline comments
-    clean_lines = []
-    for line in program.splitlines():
-        idx = line.find("#")
-        clean_lines.append(line[:idx] if idx != -1 else line)
-    clean_text = "\n".join(clean_lines)
-
-    clauses = _split_resin_clauses(clean_text)
-
-    has_landscape = False
-    clause_count = 0
-
-    for clause_text, line_num in clauses:
-        clause_text = clause_text.strip()
-        if not clause_text:
-            continue
-        clause_count += 1
-
-        if _clause_head(clause_text) == "landscape":
-            has_landscape = True
-
-        for err in _check_clause(clause_text):
-            errors.append(f"Line {line_num}: {err}")
-
-    if clause_count == 0:
-        errors.append("Program contains no clauses.")
-
-    if not has_landscape:
-        errors.append("Missing required 'landscape' definition.")
-
-    return (not bool(errors), "\n".join(errors))
-
-
-def _split_resin_clauses(text: str) -> list[tuple[str, int]]:
-    """Split Resin source into (clause_text, start_line) pairs.
-
-    Clause terminators are '.' not followed by a digit, so decimal points
-    inside numbers (digit.digit) are never treated as terminators.
-    """
-    clauses = []
-    prev_end = 0
-    for m in re.finditer(r"\.(?!\d)", text):
-        clause = text[prev_end : m.start()]
-        line_num = text[:prev_end].count("\n") + 1
-        clauses.append((clause, line_num))
-        prev_end = m.end()
-    remaining = text[prev_end:].strip()
-    if remaining:
-        clauses.append((remaining, text[:prev_end].count("\n") + 1))
-    return clauses
-
-
-def _clause_head(clause: str) -> str:
-    """Return the head predicate name of a clause."""
-    head_part = re.split(r"\bif\b", clause, maxsplit=1)[0].strip()
-    m = re.match(r"([a-zA-Z_][a-zA-Z0-9_]*)", head_part)
-    return m.group(1) if m else ""
-
-
-def _check_clause(clause: str) -> list[str]:
-    """Validate one clause; return a list of error strings."""
-    errors = []
-    parts = re.split(r"\bif\b", clause, maxsplit=1)
-    head = parts[0].strip()
-    body = parts[1].strip() if len(parts) == 2 else None
-
-    if not _HEAD_RE.match(head):
-        errors.append(f"Invalid head: '{head}'")
-
-    if body is not None:
-        for cond in re.split(r"\band\b", body):
-            cond = cond.strip()
-            if cond and not _CONDITION_RE.match(cond):
-                errors.append(f"Invalid condition: '{cond}'")
-
-    return errors
+from tracs.resin_verifier import ResinSyntaxChecker
 
 
 class JudgeOutput(BaseModel):
@@ -132,27 +38,42 @@ class IterationRecord:
     diagnostics: str
 
 
-@dataclass
 class CoderPipeline:
     """Three-agent iterative pipeline: coder -> judge -> compiler -> (repeat until accepted)."""
 
-    coder_model: str = "qwen2.5:7b-instruct"
-    judge_model: str = "qwen2.5:7b-instruct"
-    backend: str = "ollama"
-    max_iterations: int = 10
-    coder_temperature: float = 0.3
-    judge_temperature: float = 0.0
-    seed: Optional[int] = None
+    def __init__(
+        self,
+        *,
+        backend: str,
+        coder_model: str,
+        judge_model: str,
+        max_iterations: int = 10,
+        coder_temperature: float = 0.3,
+        judge_temperature: float = 0.0,
+        seed: Optional[int] = None,
+    ):
+        self.backend = backend
+        self.coder_model = coder_model
+        self.judge_model = judge_model
+        self.max_iterations = max_iterations
+        self.coder_temperature = coder_temperature
+        self.judge_temperature = judge_temperature
+        self.seed = seed
 
-    def __post_init__(self):
-        self._coder = self._build_model(
-            self.coder_model, self.coder_temperature, self.seed
-        )
+        self._coder = self._build_model(coder_model, coder_temperature, seed)
         self._judge = self._build_model(
-            self.judge_model, self.judge_temperature, self.seed
+            judge_model, judge_temperature, seed
         ).with_structured_output(JudgeOutput)
+        self._verifier = ResinSyntaxChecker()
 
-    def _build_model(self, model: str, temperature: float, seed: Optional[int]):
+        with open("prompt/system_coder.txt") as f:
+            self._coder_system = f.read()
+        with open("prompt/system_judge.txt") as f:
+            self._judge_system = f.read()
+
+    def _build_model(
+        self, model: str, temperature: float, seed: Optional[int]
+    ) -> BaseChatModel:
         match self.backend:
             case "openai":
                 return ChatOpenAI(model=model, temperature=temperature, seed=seed)
@@ -180,21 +101,30 @@ class CoderPipeline:
     def run(
         self,
         regulation: str,
-        on_iteration: Optional[Callable[["IterationRecord"], None]] = None,
-    ) -> tuple[str, list["IterationRecord"]]:
+        on_iteration: Optional[Callable[[IterationRecord], None]] = None,
+    ) -> tuple[str, list[IterationRecord]]:
         """Run the pipeline to produce an accepted Resin program.
+
+        The coder retains conversation history across iterations, so it can
+        see all of its previous attempts and the critiques they received.
+        The judge stays stateless (re-prompted from scratch each iteration).
 
         on_iteration is called after each iteration with the completed record,
         before deciding whether to continue. Returns the accepted program and
         the full iteration log. Raises RuntimeError if max_iterations is reached.
         """
+        coder_messages: list = [
+            SystemMessage(content=self._coder_system),
+            HumanMessage(content=self._initial_coder_prompt(regulation)),
+        ]
         history: list[IterationRecord] = []
-        feedback: Optional[tuple[str, str]] = None
 
         for i in range(self.max_iterations):
-            program = self._call_coder(regulation, feedback)
+            program = self._invoke_coder(coder_messages)
+            coder_messages.append(AIMessage(content=program))
+
             judge_passed, critique = self._call_judge(regulation, program)
-            compiled, diagnostics = compile_resin(program)
+            compiled, diagnostics = self._verifier.verify(program)
 
             record = IterationRecord(
                 iteration=i + 1,
@@ -212,64 +142,56 @@ class CoderPipeline:
             if judge_passed and compiled:
                 return program, history
 
-            feedback = _build_feedback(
-                judge_passed, critique, compiled, diagnostics, program
+            feedback = self._build_feedback(
+                judge_passed, critique, compiled, diagnostics
             )
+            coder_messages.append(HumanMessage(content=self._revision_prompt(feedback)))
 
         raise RuntimeError(
             f"Pipeline did not converge after {self.max_iterations} iterations."
         )
 
-    def _call_coder(self, regulation: str, feedback: Optional[str]) -> str:
-        with open("prompt/system_coder.txt") as f:
-            _CODER_SYSTEM = f.read()
-        messages = [
-            SystemMessage(content=_CODER_SYSTEM),
-            HumanMessage(content=_coder_prompt(regulation, feedback)),
-        ]
+    def _invoke_coder(self, messages: list) -> str:
         content = self._coder.invoke(messages).content
         return _strip_code_fences(_content_to_str(content).strip())
 
     def _call_judge(self, regulation: str, program: str) -> tuple[bool, str]:
-        with open("prompt/system_judge.txt") as f:
-            _JUDGE_SYSTEM = f.read()
         messages = [
-            SystemMessage(content=_JUDGE_SYSTEM),
-            HumanMessage(content=_judge_prompt(regulation, program)),
+            SystemMessage(content=self._judge_system),
+            HumanMessage(content=self._judge_prompt(regulation, program)),
         ]
         result: JudgeOutput = self._judge.invoke(messages)
         return result.verdict, result.critique
 
+    @staticmethod
+    def _initial_coder_prompt(regulation: str) -> str:
+        return f"Traffic regulation (natural language):\n{regulation}"
 
-def _coder_prompt(regulation: str, feedback: Optional[str]) -> str:
-    prompt = f"Traffic regulation (natural language):\n{regulation}"
-    if feedback:
-        prompt += (
-            "\n\nYour previous attempt was rejected. "
+    @staticmethod
+    def _revision_prompt(feedback: str) -> str:
+        return (
+            "Your previous attempt was rejected. "
             f"Revise your program based on this feedback:\n{feedback}"
         )
-    return prompt
 
+    @staticmethod
+    def _judge_prompt(regulation: str, program: str) -> str:
+        return (
+            f"Traffic regulation (natural language):\n{regulation}"
+            "\n\n"
+            f"Candidate Resin program:\n{program}"
+        )
 
-def _judge_prompt(regulation: str, program: str) -> str:
-    return (
-        f"Traffic regulation (natural language):\n{regulation}"
-        "\n\n"
-        f"Candidate Resin program:\n{program}"
-    )
-
-
-def _build_feedback(
-    judge_passed: bool, critique: str, compiled: bool, diagnostics: str, program: str
-) -> tuple[str, str]:
-    parts = []
-    if not judge_passed:
-        parts.append(f"Alignment critique:\n{critique}")
-    if not compiled:
-        parts.append(f"Compiler errors:\n{diagnostics}")
-    if parts:
-        parts.append(f"Faulty program:\n{program}")
-    return "\n\n".join(parts)
+    @staticmethod
+    def _build_feedback(
+        judge_passed: bool, critique: str, compiled: bool, diagnostics: str
+    ) -> str:
+        parts = []
+        if not judge_passed:
+            parts.append(f"Alignment critique:\n{critique}")
+        if not compiled:
+            parts.append(f"Compiler errors:\n{diagnostics}")
+        return "\n\n".join(parts)
 
 
 def _content_to_str(content) -> str:

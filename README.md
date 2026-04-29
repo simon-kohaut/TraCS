@@ -43,25 +43,42 @@ Each run produces a trace derived from `--output`: `<stem>.json`.
 
 ### JSON trace schema
 
-| Field | Description |
-|---|---|
-| `parameters.scenario` | Stem of the input regulation file |
-| `parameters.natural_language_rule` | Full text of the input regulation |
-| `parameters.system_coder` | System prompt used for the coder agent |
-| `parameters.system_judge` | System prompt used for the judge agent |
-| `parameters.backend` | LLM backend used |
-| `parameters.coder_model` | Model name for the coder |
-| `parameters.judge_model` | Model name for the judge |
-| `parameters.max_iterations` | Maximum refinement iterations |
-| `parameters.seed` | Random seed |
-| `parameters.coder_temperature` | Sampling temperature for the coder |
-| `iterations[].program` | Resin program produced in this iteration |
-| `iterations[].judge_passed` | Whether the judge accepted the program |
-| `iterations[].critique` | Judge critique text |
-| `iterations[].compiled` | Whether the Resin compiler accepted the program |
-| `iterations[].compiler_errors` | Compiler error messages (empty string if OK) |
-| `accepted` | Whether the pipeline converged |
-| `result` | Accepted program string, or `null` on failure |
+Each run produces a single JSON object like this (values abbreviated for readability):
+
+```json
+{
+  "parameters": {
+    "scenario": "1_halt",
+    "natural_language_rule": "... full text of the input regulation ...",
+    "system_coder": "... system prompt for the coder agent ...",
+    "system_judge": "... system prompt for the judge agent ...",
+    "backend": "openai",
+    "coder_model": "gpt-5.4-mini",
+    "judge_model": "gpt-5.4-mini",
+    "max_iterations": 5,
+    "seed": 1,
+    "coder_temperature": 0.3
+  },
+  "iterations": [
+    {
+      "program": "... Resin program produced in this iteration ...",
+      "judge_passed": false,
+      "critique": "... judge critique text ...",
+      "compiled": false,
+      "compiler_errors": "... compiler error messages ..."
+    },
+    {
+      "program": "...",
+      "judge_passed": true,
+      "critique": "",
+      "compiled": true,
+      "compiler_errors": ""
+    }
+  ],
+  "accepted": true,
+  "result": "... accepted program string ..."
+}
+```
 
 ### Showing all traces
 

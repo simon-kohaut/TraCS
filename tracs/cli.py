@@ -175,9 +175,9 @@ def main() -> None:
         console.print()
 
         pipeline = CoderPipeline(
+            backend=args.backend,
             coder_model=args.coder_model,
             judge_model=args.judge_model,
-            backend=args.backend,
             max_iterations=args.max_iterations,
             seed=args.seed,
             coder_temperature=args.coder_temperature,

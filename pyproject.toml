@@ -20,7 +20,8 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "promis>=4.0.0.dev1",
+    # "promis>=4.0.0.dev1",
+    "promis @ git+https://github.com/HRI-EU/ProMis.git@main",
     "langchain[anthropic,openai]>=0.3",
     "langchain-google-genai>=2.0",
     "langchain-ollama>=0.2",

@@ -9,6 +9,7 @@ OUT = Path("output")
 MODELS = [
     ("local",      "google/gemma-4-31B-it"),
     # ("local",      "Qwen/Qwen3.6-27B"),
+    # ("local",      "Aleph-Alpha/Pharia-1-LLM-7B-control-hf"),
     # ("openai",     "gpt-5.5"),
     # ("openai",     "gpt-5.4-mini"),
     # ("anthropic",  "claude-opus-4-7"),
