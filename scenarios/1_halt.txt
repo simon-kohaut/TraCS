@@ -1,2 +1,1 @@
-Vehicles halt when approaching a stop sign, a yield sign, or a crosswalk.
-Halting means their speed drops substantially.
+Vehicles halt before crossing a stop sign, a yield sign, or a crosswalk. Halting means their speed drops substantially.

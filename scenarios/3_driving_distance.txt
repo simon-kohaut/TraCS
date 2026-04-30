@@ -1,2 +1,1 @@
-Depending on the speed, cars keep a safe distance from each other.
-Specify three speed levels with reasonable distances for city driving.
+Depending on the speed, cars keep a safe distance from each other. Specify three speed levels with reasonable distances for city driving.
