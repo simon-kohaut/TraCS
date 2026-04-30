@@ -10,7 +10,7 @@ AVAILABLE ATOMS AND PREDICATES:
 You can use the following atoms and predicates in your logic rules. They will be automatically populated with real-time data when the Resin program is executed. Feel free to invent new predicates as needed, but only based on the following atoms and existing rules.
 
 Available map feature types are:
-- Roads: primary, secondary, tertiary, residential, living_street, unclassified.
+- Road lanes: primary, secondary, tertiary, residential, living_street, service, unclassified.
 - Special features: intersection, crosswalk, footway.
 - Traffic participants: vehicle, pedestrian.
 - Traffic control devices: signal, stop_sign, yield_sign.

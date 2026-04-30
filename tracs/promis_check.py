@@ -40,14 +40,18 @@ def check_with_promis(rules: str) -> tuple[bool, str]:
     Returns (success, message). On success the message is the probability
     at the single grid point; on failure it is the exception class + text.
     """
+
+    # TODO eventually also do the maxspeed -> conctant conversion.
+
     program = "\n".join([
         _build_source_preamble(rules),
         rules,
         'landscape -> target("/landscape").',
     ])
-    # print("=== ProMiS program ===")
-    # print(program)
-    # print("=====================")
+    print()
+    print("=== ProMiS program ===")
+    print(program)
+    print("=====================")
 
     origin = PolarLocation(latitude=0.0, longitude=0.0)
     # Qhull needs at least 4 points for Delaunay triangulation, so use a 2x2 grid.

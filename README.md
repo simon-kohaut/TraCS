@@ -83,14 +83,10 @@ Each run produces a single JSON object like this (values abbreviated for readabi
 ### Showing all traces
 
 ```shell
-for f in output/*.json; do tracs_show "$f"; done
+for f in output/*; do echo "$f:"; tracs_show "$f"; read -p "Press Enter for next..."; echo ; done
 ```
 
 ## TODOs LLM pipeline
-
-- Changes needed:
-  - Removed service and unclassified road
-  - add vehicle and pedestrian as features
 
 - Probabilistic predicates
 - scenarios:
