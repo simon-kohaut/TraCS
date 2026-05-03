@@ -30,6 +30,7 @@ dependencies = [
     "ipykernel",
     "seaborn",
     "statsmodels",
+    "av2",
 ]
 
 [project.scripts]
