@@ -17,9 +17,14 @@ MODELS = [
     # ("google",     "gemini-3.1-pro-preview"),
     # ("google",     "gemini-3-flash-preview"),
     #
+    # ("local",      "Qwen/Qwen3.5-0.8B"),
+    # ("local",      "Qwen/Qwen3.5-2B"),
+    # ("local",      "Qwen/Qwen3.5-4B"),
+    # ("local",      "Qwen/Qwen3.5-9B"),
+    # ("local",      "Qwen/Qwen3.5-27B"),
 ]
 
-SEEDS = [1, 2] # , 3, 4, 5]
+SEEDS = [1, 2, 3] # , 4, 5]
 
 
 def main():

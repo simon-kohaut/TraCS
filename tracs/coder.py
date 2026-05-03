@@ -78,12 +78,10 @@ class CoderPipeline:
             case "openai":
                 return ChatOpenAI(model=model, temperature=temperature, seed=seed)
             case "anthropic":
-                # Some Anthropic models reject the `temperature` parameter
-                # (API returns 400: '`temperature` is deprecated for this model.').
-                # To keep the pipeline working across model versions, we omit it.
-                return ChatAnthropic(model=model, max_tokens=4096)
+                # Some Anthropic models reject the `temperature` parameter, so we omit it.
+                return ChatAnthropic(model=model, max_tokens=32_000)
             case "google":
-                return ChatGoogleGenerativeAI(model=model, temperature=temperature)
+                return ChatGoogleGenerativeAI(model=model, temperature=temperature, seed=seed)
             case "local":
                 return ChatOpenAI(
                     model=model,
