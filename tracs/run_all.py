@@ -7,15 +7,16 @@ OUT = Path("output")
 
 # (backend, model)
 MODELS = [
-    ("local",      "google/gemma-4-31B-it"),
-    # ("local",      "Qwen/Qwen3.6-27B"),
+    # ("local",      "google/gemma-4-31B-it"),
+    ("local",      "Qwen/Qwen3.6-27B"),
     # ("local",      "Aleph-Alpha/Pharia-1-LLM-7B-control-hf"),
-    ("openai",     "gpt-5.5"),
+    # ("openai",     "gpt-5.5"),
     # ("openai",     "gpt-5.4-mini"),
-    ("anthropic",  "claude-opus-4-7"),
+    # ("anthropic",  "claude-opus-4-7"),
     # ("anthropic",  "claude-sonnet-4-6"),
-    ("google",     "gemini-3.1-pro-preview"),
+    # ("google",     "gemini-3.1-pro-preview"),
     # ("google",     "gemini-3-flash-preview"),
+    #
 ]
 
 SEEDS = [1, 2] # , 3, 4, 5]

@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
+
 _PROMPT_TRUNCATE_LINES = 5
 
 
@@ -108,7 +109,7 @@ def main() -> None:
 
     if trace["accepted"]:
         console.rule("[green bold]Accepted[/green bold]")
-        console.print(Panel(_program_renderable(trace["result"]), box=box.ROUNDED))
+        console.print(Panel(_program_renderable(trace["full_result"]), box=box.ROUNDED))
     else:
         console.rule("[red bold]Not Accepted[/red bold]")
 

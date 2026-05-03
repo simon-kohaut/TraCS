@@ -22,6 +22,8 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from tracs.coder import CoderPipeline, IterationRecord
+from tracs.promis_preparation import generate_full_program
+
 
 _TRUNCATE_LINES = 15
 
@@ -65,7 +67,7 @@ def _iteration_panel(record: IterationRecord, max_iterations: int, verbose: bool
     )
 
 
-def _write_trace(output_path: Path, args, regulation: str, iterations: list, accepted: bool, result):
+def _write_trace(output_path: Path, args, regulation: str, iterations: list, accepted: bool, result, full_result):
     trace = {
         "parameters": {
             "scenario": Path(args.regulation).stem,
@@ -82,6 +84,7 @@ def _write_trace(output_path: Path, args, regulation: str, iterations: list, acc
         "iterations": iterations,
         "accepted": accepted,
         "result": result,
+        "full_result": full_result,
     }
     output_path.with_suffix(".json").write_text(json.dumps(trace, indent=2), encoding="utf-8")
 
@@ -185,8 +188,10 @@ def main() -> None:
 
         def on_iteration(record: IterationRecord) -> None:
             console.print(_iteration_panel(record, args.max_iterations, not args.quiet))
+            full_program = generate_full_program(record.program)
             iterations.append({
                 "program": record.program,
+                "full_program": full_program,
                 "judge_passed": record.judge_passed,
                 "critique": record.critique,
                 "compiled": record.compiled,
@@ -198,19 +203,20 @@ def main() -> None:
 
         console.rule(f"[green bold]Accepted after {n} iteration{'s' if n != 1 else ''}[/green bold]")
 
+        full_program = iterations[-1]["full_program"]
         if args.output == "-":
-            console.print(Syntax(program, "prolog", theme="monokai", line_numbers=True, word_wrap=True))
+            console.print(Syntax(full_program, "prolog", theme="monokai", line_numbers=True, word_wrap=True))
         else:
             output_path = Path(args.output)
-            output_path.write_text(program, encoding="utf-8")
-            _write_trace(output_path, args, regulation, iterations, accepted=True, result=program)
+            output_path.write_text(full_program, encoding="utf-8")
+            _write_trace(output_path, args, regulation, iterations, accepted=True, result=program, full_result=full_program)
             console.print(f"  Saved to: [green]{args.output}[/green]")
 
     except RuntimeError as exc:
         console.rule("[red bold]Pipeline Failed[/red bold]")
         console.print(f"  [red]{exc}[/red]")
         if args.output != "-":
-            _write_trace(Path(args.output), args, regulation, iterations, accepted=False, result=None)
+            _write_trace(Path(args.output), args, regulation, iterations, accepted=False, result=None, full_result=None)
         sys.exit(1)
 
 
