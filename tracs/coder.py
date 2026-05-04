@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from os import getenv
 from typing import Callable, Optional
 
+from openai import LengthFinishReasonError
+
 from langchain.chat_models import BaseChatModel
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -64,7 +66,9 @@ class CoderPipeline:
         self.seed = seed
         self.max_tokens = max_tokens
 
-        self._coder = self._build_model(coder_backend, coder_model, coder_temperature, seed, max_tokens=max_tokens)
+        self._coder = self._build_model(
+            coder_backend, coder_model, coder_temperature, seed, max_tokens=max_tokens
+        )
         self._judge = self._build_model(
             judge_backend, judge_model, judge_temperature, seed, max_tokens=max_tokens
         ).with_structured_output(JudgeOutput)
@@ -76,16 +80,32 @@ class CoderPipeline:
             self._judge_system = f.read()
 
     def _build_model(
-        self, backend: str, model: str, temperature: float, seed: Optional[int], *, max_tokens: int = 10_000
+        self,
+        backend: str,
+        model: str,
+        temperature: float,
+        seed: Optional[int],
+        *,
+        max_tokens: int,
     ) -> BaseChatModel:
         match backend:
             case "openai":
-                return ChatOpenAI(model=model, temperature=temperature, seed=seed, max_tokens=max_tokens)
+                return ChatOpenAI(
+                    model=model,
+                    temperature=temperature,
+                    seed=seed,
+                    max_tokens=max_tokens,
+                )
             case "anthropic":
                 # Some Anthropic models reject the `temperature` parameter, so we omit it.
                 return ChatAnthropic(model=model, max_tokens=max_tokens)
             case "google":
-                return ChatGoogleGenerativeAI(model=model, temperature=temperature, seed=seed, max_tokens=max_tokens)
+                return ChatGoogleGenerativeAI(
+                    model=model,
+                    temperature=temperature,
+                    seed=seed,
+                    max_tokens=max_tokens,
+                )
             case "local":
                 return ChatOpenAI(
                     model=model,
@@ -98,7 +118,12 @@ class CoderPipeline:
                     max_tokens=max_tokens,
                 )
             case "ollama":
-                return ChatOllama(model=model, temperature=temperature, seed=seed, num_predict=max_tokens)
+                return ChatOllama(
+                    model=model,
+                    temperature=temperature,
+                    seed=seed,
+                    num_predict=max_tokens,
+                )
             case _:
                 raise ValueError(f"Unknown backend: {backend!r}")
 
@@ -164,8 +189,11 @@ class CoderPipeline:
             SystemMessage(content=self._judge_system),
             HumanMessage(content=self._judge_prompt(regulation, program)),
         ]
-        result: JudgeOutput = self._judge.invoke(messages)
-        return result.verdict, result.critique
+        try:
+            result: JudgeOutput = self._judge.invoke(messages)
+            return result.verdict, result.critique
+        except LengthFinishReasonError:
+            return False, "The judge did not conclude within the token budget. Possibly, your program was too long."
 
     @staticmethod
     def _initial_coder_prompt(regulation: str) -> str:
