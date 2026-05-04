@@ -62,21 +62,26 @@ Each run produces a single JSON object like this (values abbreviated for readabi
   "iterations": [
     {
       "program": "... Resin program produced in this iteration ...",
+      "full_program": "... full program including source signals and target predicates ...",
       "judge_passed": false,
       "critique": "... judge critique text ...",
       "compiled": false,
       "compiler_errors": "... compiler error messages ..."
+      // "human_judge_passed": true/false,  // optional field for human judge feedback
     },
     {
       "program": "...",
+      "full_program": "...",
       "judge_passed": true,
       "critique": "",
       "compiled": true,
       "compiler_errors": ""
+      // "human_judge_passed": true/false, 
     }
   ],
   "accepted": true,
-  "result": "... accepted program string ..."
+  "final_program": "... accepted program string ...",
+  "full_final_program": "..."
 }
 ```
 

@@ -83,8 +83,8 @@ def _write_trace(output_path: Path, args, regulation: str, iterations: list, acc
         },
         "iterations": iterations,
         "accepted": accepted,
-        "result": result,
-        "full_result": full_result,
+        "final_program": result,
+        "full_final_program": full_result,
     }
     output_path.with_suffix(".json").write_text(json.dumps(trace, indent=2), encoding="utf-8")
 
@@ -196,6 +196,7 @@ def main() -> None:
                 "critique": record.critique,
                 "compiled": record.compiled,
                 "compiler_errors": record.diagnostics,
+                "human_judge_passed": None,
             })
 
         program, history = pipeline.run(regulation, on_iteration=on_iteration)
