@@ -27,6 +27,13 @@ def _build_source_preamble(rules: str) -> str:
         f'{relation}({feature}) <- source("/star_map/{relation}/{feature}", {_RELATIONS[relation]}).'
         for relation, feature in sorted(_referenced_relations(rules))
     ]
+
+    # This is overly simplistic but will never miss an occurence
+    if "speed" in rules:
+        lines.append('speed <- source("/sensors/speed", Number).')
+    if "bearing" in rules:
+        lines.append('bearing <- source("/sensors/bearing", Number).')
+
     return "\n".join(lines)
 
 

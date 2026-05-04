@@ -66,8 +66,11 @@ Each run produces a single JSON object like this (values abbreviated for readabi
       "judge_passed": false,
       "critique": "... judge critique text ...",
       "compiled": false,
-      "compiler_errors": "... compiler error messages ..."
-      // "human_judge_passed": true/false,  // optional field for human judge feedback
+      "compiler_errors": "... compiler error messages ...",
+      "opinions": {
+        "human": {"passed": true},
+        "claude-opus-4-7": {"passed": false, "critique": "..."}
+      }
     },
     {
       "program": "...",
@@ -75,8 +78,8 @@ Each run produces a single JSON object like this (values abbreviated for readabi
       "judge_passed": true,
       "critique": "",
       "compiled": true,
-      "compiler_errors": ""
-      // "human_judge_passed": true/false, 
+      "compiler_errors": "",
+      "opinions": {}
     }
   ],
   "accepted": true,
@@ -89,6 +92,20 @@ Each run produces a single JSON object like this (values abbreviated for readabi
 
 ```shell
 for f in output/*; do echo "$f:"; tracs_show "$f"; read -p "Press Enter for next..."; echo ; done
+```
+
+### Adding judge opinions post-hoc
+
+Use `tracs_add_judge` to annotate an existing trace with additional judge verdicts.
+Opinions are stored per iteration under the `opinions` key, keyed by judge name.
+
+```shell
+# Interactive human annotation (y/n/s per iteration)
+tracs_add_judge output/1_halt_claude-opus-4-7_seed1.json --judge human
+
+# LLM judge (uses the system_judge prompt already embedded in the trace)
+tracs_add_judge output/1_halt_claude-opus-4-7_seed1.json \
+  --judge claude-opus-4-7 --backend anthropic
 ```
 
 ## TODOs LLM pipeline

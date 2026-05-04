@@ -196,7 +196,7 @@ def main() -> None:
                 "critique": record.critique,
                 "compiled": record.compiled,
                 "compiler_errors": record.diagnostics,
-                "human_judge_passed": None,
+                "opinions": {},
             })
 
         program, history = pipeline.run(regulation, on_iteration=on_iteration)

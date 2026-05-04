@@ -37,6 +37,7 @@ dependencies = [
 tracs_gen = "tracs.cli:main"
 tracs_run_all = "tracs.run_all:main"
 tracs_show = "tracs.show_trace:main"
+tracs_add_judge = "tracs.add_judge:main"
 
 [tool.setuptools.packages.find]
 include = ["tracs*"]
