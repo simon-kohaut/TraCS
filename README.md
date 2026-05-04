@@ -26,9 +26,19 @@ ssh -L 54112:localhost:54112 dgx2-b
 Then, run the following command to execute a scenario:
 
 ```shell
-tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json --backend local --max-iterations 5 --verbose
+tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
+  --coder-backend anthropic --judge-backend anthropic --max-iterations 5 --verbose
 
-tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json --backend openai --coder-model gpt-5.4-mini --judge-model gpt-5.4-mini --max-iterations 5 --verbose
+tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
+  --coder-backend openai --coder-model gpt-5.4-mini \
+  --judge-backend openai --judge-model gpt-5.4-mini \
+  --max-iterations 5 --verbose
+
+# Separate backends for coder and judge:
+tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
+  --coder-backend local --coder-model Qwen/Qwen3.6-27B \
+  --judge-backend anthropic --judge-model claude-opus-4-7 \
+  --max-iterations 5 --verbose
 ```
 
 Or run all scenarios sequentially:
@@ -52,9 +62,10 @@ Each run produces a single JSON object like this (values abbreviated for readabi
     "natural_language_rule": "... full text of the input regulation ...",
     "system_coder": "... system prompt for the coder agent ...",
     "system_judge": "... system prompt for the judge agent ...",
-    "backend": "openai",
+    "coder_backend": "openai",
     "coder_model": "gpt-5.4-mini",
-    "judge_model": "gpt-5.4-mini",
+    "judge_backend": "anthropic",
+    "judge_model": "claude-opus-4-7",
     "max_iterations": 5,
     "seed": 1,
     "coder_temperature": 0.3

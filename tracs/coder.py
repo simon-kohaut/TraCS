@@ -44,25 +44,29 @@ class CoderPipeline:
     def __init__(
         self,
         *,
-        backend: str,
+        coder_backend: str,
         coder_model: str,
+        judge_backend: str,
         judge_model: str,
         max_iterations: int = 10,
         coder_temperature: float = 0.3,
         judge_temperature: float = 0.0,
         seed: Optional[int] = None,
+        max_tokens: int = 10_000,
     ):
-        self.backend = backend
+        self.coder_backend = coder_backend
         self.coder_model = coder_model
+        self.judge_backend = judge_backend
         self.judge_model = judge_model
         self.max_iterations = max_iterations
         self.coder_temperature = coder_temperature
         self.judge_temperature = judge_temperature
         self.seed = seed
+        self.max_tokens = max_tokens
 
-        self._coder = self._build_model(coder_model, coder_temperature, seed)
+        self._coder = self._build_model(coder_backend, coder_model, coder_temperature, seed, max_tokens=max_tokens)
         self._judge = self._build_model(
-            judge_model, judge_temperature, seed
+            judge_backend, judge_model, judge_temperature, seed, max_tokens=max_tokens
         ).with_structured_output(JudgeOutput)
         self._verifier = ResinSyntaxChecker()
 
@@ -72,16 +76,16 @@ class CoderPipeline:
             self._judge_system = f.read()
 
     def _build_model(
-        self, model: str, temperature: float, seed: Optional[int]
+        self, backend: str, model: str, temperature: float, seed: Optional[int], *, max_tokens: int = 10_000
     ) -> BaseChatModel:
-        match self.backend:
+        match backend:
             case "openai":
-                return ChatOpenAI(model=model, temperature=temperature, seed=seed)
+                return ChatOpenAI(model=model, temperature=temperature, seed=seed, max_tokens=max_tokens)
             case "anthropic":
                 # Some Anthropic models reject the `temperature` parameter, so we omit it.
-                return ChatAnthropic(model=model, max_tokens=32_000)
+                return ChatAnthropic(model=model, max_tokens=max_tokens)
             case "google":
-                return ChatGoogleGenerativeAI(model=model, temperature=temperature, seed=seed)
+                return ChatGoogleGenerativeAI(model=model, temperature=temperature, seed=seed, max_tokens=max_tokens)
             case "local":
                 return ChatOpenAI(
                     model=model,
@@ -91,11 +95,12 @@ class CoderPipeline:
                     api_key=getenv("LOCAL_MODEL_KEY", ""),
                     temperature=temperature,
                     seed=seed,
+                    max_tokens=max_tokens,
                 )
             case "ollama":
-                return ChatOllama(model=model, temperature=temperature, seed=seed)
+                return ChatOllama(model=model, temperature=temperature, seed=seed, num_predict=max_tokens)
             case _:
-                raise ValueError(f"Unknown backend: {self.backend!r}")
+                raise ValueError(f"Unknown backend: {backend!r}")
 
     def run(
         self,

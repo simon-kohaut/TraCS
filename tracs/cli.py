@@ -67,15 +67,16 @@ def _iteration_panel(record: IterationRecord, max_iterations: int, verbose: bool
     )
 
 
-def _write_trace(output_path: Path, args, regulation: str, iterations: list, accepted: bool, result, full_result):
+def _write_trace(output_path: Path, args, regulation: str, iterations: list, accepted: bool, result, full_result, *, coder_backend: str, judge_backend: str):
     trace = {
         "parameters": {
             "scenario": Path(args.regulation).stem,
             "natural_language_rule": regulation,
             "system_coder": Path("prompt/system_coder.txt").read_text(encoding="utf-8"),
             "system_judge": Path("prompt/system_judge.txt").read_text(encoding="utf-8"),
-            "backend": args.backend,
+            "coder_backend": coder_backend,
             "coder_model": args.coder_model,
+            "judge_backend": judge_backend,
             "judge_model": args.judge_model,
             "max_iterations": args.max_iterations,
             "seed": args.seed,
@@ -107,27 +108,35 @@ def main() -> None:
         help="Output path for the accepted .resin program (default: stdout). Also writes a .json trace alongside.",
     )
     parser.add_argument(
-        "--backend",
-        default="ollama",
+        "--coder-backend",
+        default="anthropic",
         choices=["ollama", "openai", "anthropic", "google", "local"],
+        metavar="BACKEND",
         help=(
-            "LLM backend to use (default: ollama). "
+            "LLM backend for the coder agent (default: anthropic). "
             "'openai' reads OPENAI_API_KEY, 'anthropic' reads ANTHROPIC_API_KEY, "
             "'google' reads GOOGLE_API_KEY, "
             "'local' reads LOCAL_MODEL_BASE_URL and LOCAL_MODEL_KEY from .env."
         ),
     )
     parser.add_argument(
+        "--judge-backend",
+        default="anthropic",
+        choices=["ollama", "openai", "anthropic", "google", "local"],
+        metavar="BACKEND",
+        help="LLM backend for the judge agent (default: anthropic).",
+    )
+    parser.add_argument(
         "--coder-model",
-        default="google/gemma-4-E4B-it",
+        default="claude-sonnet-4-6",
         metavar="MODEL",
-        help="Model name for the coder agent (default: google/gemma-4-E4B-it).",
+        help="Model name for the coder agent (default: claude-sonnet-4-6).",
     )
     parser.add_argument(
         "--judge-model",
-        default="google/gemma-4-E4B-it",
+        default="claude-sonnet-4-6",
         metavar="MODEL",
-        help="Model name for the judge agent (default: google/gemma-4-E4B-it).",
+        help="Model name for the judge agent (default: claude-sonnet-4-6).",
     )
     parser.add_argument(
         "--max-iterations",
@@ -159,6 +168,8 @@ def main() -> None:
 
     console = Console(highlight=False)
     iterations = []
+    coder_backend = args.coder_backend
+    judge_backend = args.judge_backend
 
     try:
         try:
@@ -168,18 +179,20 @@ def main() -> None:
             sys.exit(1)
 
         console.rule("[bold cyan]TraCS[/bold cyan]")
-        console.print(f"  Regulation : [cyan]{args.regulation}[/cyan]")
-        console.print(f"  Backend    : [cyan]{args.backend}[/cyan]")
-        console.print(f"  Coder      : [cyan]{args.coder_model}[/cyan]")
-        console.print(f"  Judge      : [cyan]{args.judge_model}[/cyan]")
-        console.print(f"  Max iter.  : [cyan]{args.max_iterations}[/cyan]")
-        console.print(f"  Seed       : [cyan]{args.seed}[/cyan]")
-        console.print(f"  Coder temp.: [cyan]{args.coder_temperature}[/cyan]")
+        console.print(f"  Regulation   : [cyan]{args.regulation}[/cyan]")
+        console.print(f"  Coder backend: [cyan]{coder_backend}[/cyan]")
+        console.print(f"  Coder model  : [cyan]{args.coder_model}[/cyan]")
+        console.print(f"  Judge backend: [cyan]{judge_backend}[/cyan]")
+        console.print(f"  Judge model  : [cyan]{args.judge_model}[/cyan]")
+        console.print(f"  Max iter.    : [cyan]{args.max_iterations}[/cyan]")
+        console.print(f"  Seed         : [cyan]{args.seed}[/cyan]")
+        console.print(f"  Coder temp.  : [cyan]{args.coder_temperature}[/cyan]")
         console.print()
 
         pipeline = CoderPipeline(
-            backend=args.backend,
+            coder_backend=coder_backend,
             coder_model=args.coder_model,
+            judge_backend=judge_backend,
             judge_model=args.judge_model,
             max_iterations=args.max_iterations,
             seed=args.seed,
@@ -210,14 +223,14 @@ def main() -> None:
         else:
             output_path = Path(args.output)
             output_path.write_text(full_program, encoding="utf-8")
-            _write_trace(output_path, args, regulation, iterations, accepted=True, result=program, full_result=full_program)
+            _write_trace(output_path, args, regulation, iterations, accepted=True, result=program, full_result=full_program, coder_backend=coder_backend, judge_backend=judge_backend)
             console.print(f"  Saved to: [green]{args.output}[/green]")
 
     except RuntimeError as exc:
         console.rule("[red bold]Pipeline Failed[/red bold]")
         console.print(f"  [red]{exc}[/red]")
         if args.output != "-":
-            _write_trace(Path(args.output), args, regulation, iterations, accepted=False, result=None, full_result=None)
+            _write_trace(Path(args.output), args, regulation, iterations, accepted=False, result=None, full_result=None, coder_backend=coder_backend, judge_backend=judge_backend)
         sys.exit(1)
 
 

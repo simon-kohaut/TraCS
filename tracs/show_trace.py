@@ -89,8 +89,9 @@ def main() -> None:
 
     param_content = [
         _param("Scenario", params["scenario"]),
-        _param("Backend", params["backend"]),
+        _param("Coder backend", params["coder_backend"]),
         _param("Coder model", params["coder_model"]),
+        _param("Judge backend", params["judge_backend"]),
         _param("Judge model", params["judge_model"]),
         _param("Max iter.", params["max_iterations"]),
         _param("Seed", params["seed"]),

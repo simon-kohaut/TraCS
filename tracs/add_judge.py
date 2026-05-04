@@ -75,7 +75,7 @@ def _run_human(
     n: int,
 ) -> None:
     for i, it in enumerate(iterations, start=1):
-        program = it.get("full_program") or it.get("program", "")
+        program = it.get("program", "")
         console.print(Panel(
             Syntax(program, "prolog", theme="ansi_dark", word_wrap=True),
             title=f"[bold]Iteration {i} / {n}[/bold]",
@@ -194,6 +194,12 @@ def main() -> None:
     console.print(f"  Trace      : [cyan]{args.trace}[/cyan]")
     console.print(f"  Judge      : [cyan]{args.judge}[/cyan]")
     console.print(f"  Iterations : [cyan]{n}[/cyan]")
+    console.print()
+    console.print(Panel(
+        "\n".join(f"  {line}" for line in regulation.splitlines()),
+        title="[bold]Regulation[/bold]",
+        box=box.ROUNDED,
+    ))
     console.print()
 
     if args.judge == "human":
