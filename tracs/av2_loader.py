@@ -134,13 +134,12 @@ class AV2StaticMapLoader(SpatialLoader):
 class AV2AgentLoader(SpatialLoader):
     """A loader for agent trajectories from a parquet file for a specific scenario."""
 
-    def __init__(self, prediction_path: str | Path, split_path: str | Path, scenario_id: str, without_focal=True):
+    def __init__(self, prediction_path: str | Path, split_path: str | Path, scenario_id: str,):
         self.prediction_path = Path(prediction_path)
         self.scenario_path = Path(split_path) / scenario_id / f"scenario_{scenario_id}.parquet"
         self.scenario_id = scenario_id
         self.features = []
-        self.focal_agent = None
-        self.without_focal = without_focal
+        self.focal_predictions = []
         self.agents = []
         self.current_index = 0
 
@@ -173,7 +172,7 @@ class AV2AgentLoader(SpatialLoader):
             }
 
             if track_id == focal_track_id:
-                self.focal_agent = state
+                self.focal_predictions.append(state)
             else:
                 self.agents.append(state)
 
@@ -191,7 +190,7 @@ class AV2AgentLoader(SpatialLoader):
     def _build_features(self) -> None:
         """Update the features list to represent the agents at the current index."""
         self.features = []
-        agent_states = self.agents if self.without_focal else [self.focal_agent] + self.agents
+        agent_states = self.agents # [self.focal_predictions] + self.agents
         for agent in agent_states:
             x_traj = agent["x_traj"]
             y_traj = agent["y_traj"]
