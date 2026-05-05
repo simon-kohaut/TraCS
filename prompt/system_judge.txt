@@ -63,6 +63,12 @@ Output:
 landscape if not intersects(signal).
 landscape if speed < 5.0.
 
+JUDGING UNDER-SPECIFIED RULES:
+Some natural-language rules cannot be fully captured by the available predicates (e.g. lane position, turn signals, and pedestrian intent are not directly observable). When this happens:
+- Accept a reasonable, well-justified approximation as valid; do not demand exactness that the predicate set cannot express.
+- Only reject when the program is semantically wrong: it inverts the direction of an implication, contradicts the natural-language rule, references undefined atoms, or collapses to a vacuous tautology (e.g. "landscape if X. landscape if not X.").
+- Prefer accepting a rough-but-correct program over rejecting and forcing another iteration.
+
 CONSTRAINTS FOR AUTOMATION:
 - Do NOT include any explanations, greetings, or conversational text.
 - Make sure that the code ALWAYS ends with a "landscape if ..." clause that captures the semantics of the user-provided natural language description.

@@ -124,3 +124,4 @@ tracs_add_judge output/1_halt_claude-opus-4-7_seed1.json \
 - Probabilistic predicates
 - scenarios:
     - vielleicht irgendwann: andere autos explizit modellieren -> cool weil first oder
+- could make it easier to query multiple LLMs in parallel: https://gemini.google.com/share/3005c3443542

@@ -54,7 +54,8 @@ class CoderPipeline:
         coder_temperature: float = 0.3,
         judge_temperature: float = 0.0,
         seed: Optional[int] = None,
-        max_tokens: int = 10_000,
+        max_tokens: int = 20_000,
+        history_window: int = 3,
     ):
         self.coder_backend = coder_backend
         self.coder_model = coder_model
@@ -65,6 +66,7 @@ class CoderPipeline:
         self.judge_temperature = judge_temperature
         self.seed = seed
         self.max_tokens = max_tokens
+        self.history_window = history_window
 
         self._coder = self._build_model(
             coder_backend, coder_model, coder_temperature, seed, max_tokens=max_tokens
@@ -181,8 +183,18 @@ class CoderPipeline:
         )
 
     def _invoke_coder(self, messages: list) -> str:
-        content = self._coder.invoke(messages).content
-        return _strip_code_fences(_content_to_str(content).strip())
+        content = self._coder.invoke(self._trim_history(messages)).content
+        return _strip_code_fences(_strip_thinking_traces(_content_to_str(content).strip()))
+
+    def _trim_history(self, messages: list) -> list:
+        """Keep system + initial prompt and the last history_window revision cycles."""
+        header = messages[:2]
+        tail = messages[2:]
+        max_tail = self.history_window * 2
+        if len(tail) > max_tail:
+            print(f"WARNING: trimming coder history to last {self.history_window} cycles")
+            tail = tail[-max_tail:]
+        return header + tail
 
     def _call_judge(self, regulation: str, program: str) -> tuple[bool, str]:
         messages = [
@@ -240,6 +252,14 @@ def _content_to_str(content) -> str:
         elif isinstance(part, dict):
             parts.append(part.get("text", ""))
     return "".join(parts)
+
+
+def _strip_thinking_traces(text: str) -> str:
+    """Remove chain-of-thought traces that some models (e.g. Qwen3.5) emit."""
+    if "</think>" not in text:
+        return text
+    print("WARNING: coder returned thinking traces — stripping")
+    return text.split("</think>", 1)[-1].strip()
 
 
 def _strip_code_fences(text: str) -> str:
