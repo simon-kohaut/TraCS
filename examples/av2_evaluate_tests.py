@@ -13,7 +13,6 @@ import click
 import os
 
 test_anno_path = Path("dataset/av2_mf_focal_test_annotations.parquet")
-# submission_path = Path("dataset/DeMo_submission_all.parquet")
 submission_path = Path("dataset/tracs_predictions/test")
 
 KEYS = ["probability", "tracs_weight_normalized", "tracs_factor"]
@@ -33,11 +32,9 @@ def main(gt_path, sub_path, write_to, export_path):
         return
 
     gt_df = pd.read_parquet(gt_path)
-
     gt_df_grouped = gt_df.groupby(["scenario_id", "track_id"])
 
-
-    metrics_df = pd.DataFrame(columns=["scenario_id", "track_id", "minADE6", "minFDE6", "brier_minADE6", "brier_minFDE6", "is_missed_prediction6", "minADE1", "minFDE1", "brier_minADE1", "brier_minFDE1", "is_missed_prediction1"])
+    rows = []
 
     pred_files = sorted([f for f in os.listdir(sub_path) if f.endswith(".parquet")])
 
@@ -56,17 +53,17 @@ def main(gt_path, sub_path, write_to, export_path):
             destination=[2, 0, 1],
         )
 
+        gt_track = np.array([gt["gt_trajectory_x"].iloc[0], gt["gt_trajectory_y"].iloc[0]]).T
+        ade = metrics.compute_ade(pred_track, gt_track)
+        fde = metrics.compute_fde(pred_track, gt_track)
+        is_missed = metrics.compute_is_missed_prediction(pred_track, gt_track)
+
         for key in KEYS:
             pred_prob = pred[key].to_numpy()
             most_prob_index = pred_prob.argmax()
 
-            gt_track = np.array([gt["gt_trajectory_x"].iloc[0], gt["gt_trajectory_y"].iloc[0]]).T
-
-            ade = metrics.compute_ade(pred_track, gt_track)
-            fde = metrics.compute_fde(pred_track, gt_track)
             brier_ade = metrics.compute_brier_ade(pred_track, gt_track, pred_prob)
             brier_fde = metrics.compute_brier_fde(pred_track, gt_track, pred_prob)
-            is_missed = metrics.compute_is_missed_prediction(pred_track, gt_track)
 
             metrics_df_row = {
                 "scenario_id": scenario_id,
@@ -83,8 +80,9 @@ def main(gt_path, sub_path, write_to, export_path):
                 "is_missed_prediction6": is_missed.min(),
                 "is_missed_prediction1": is_missed[most_prob_index],
             }
-            metrics_df = pd.concat([metrics_df, pd.DataFrame(metrics_df_row, index=[0])], ignore_index=True)
+            rows.append(metrics_df_row)
 
+    metrics_df = pd.DataFrame(rows)
     result: pd.DataFrame = metrics_df[["minADE6", "brier_minADE6", "brier_minFDE6", "minFDE6", "is_missed_prediction6", "minADE1", "brier_minADE1", "brier_minFDE1", "minFDE1", "is_missed_prediction1"]].mean()
     print(result)
     if write_to is not None:
@@ -102,6 +100,8 @@ def main(gt_path, sub_path, write_to, export_path):
             metrics_df.to_parquet(export_path, index=False)
         except Exception as e:
             print(f"Error occurred while writing to file: {e}")
+        print(f"Metrics dataframe exported to {export_path}")
+
 
 if __name__ == "__main__":
     main()
