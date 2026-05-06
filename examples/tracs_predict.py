@@ -23,7 +23,7 @@ STEP_SIZE = 1
 SCENARIO_LENGTH = 60
 
 BUFFER_SPACE = 40
-X_RES, Y_RES = 50, 50
+X_RES, Y_RES = 100, 100
 RESOLUTION = X_RES * Y_RES
 
 MODALITIES = 6
@@ -55,24 +55,65 @@ landscape -> target("/landscape").
 
 
 FEATURE_DESCRIPTION = {
-    "crossing": "PEDESTRIAN_CROSSING",
-    "street": "DRIVABLE_AREA",
+    "crosswalk": "PEDESTRIAN_CROSSING",
+    "drivable_area": "DRIVABLE_AREA",
     "intersection": "INTERSECTION",
-    "lane": "VEHICLE",
+    "vehicle_lane": "VEHICLE",
     "bike_lane": "BIKE",
     "bus_lane": "BUS",
     "solid_line": ["DOUBLE_SOLID_YELLOW", "DOUBLE_SOLID_WHITE", "SOLID_YELLOW", "SOLID_WHITE",],
-    # "hybrid_line": ["DASH_SOLID_YELLOW", "DASH_SOLID_WHITE", "SOLID_DASH_WHITE", "SOLID_DASH_YELLOW",],
     "dashed_line": ["DASHED_WHITE", "DASHED_YELLOW", "DOUBLE_DASH_YELLOW", "DOUBLE_DASH_WHITE",],
-} # should mostly be constant
+} # according to system prompt
 
-def softmax(x):
-    np.exp(x)/sum(np.exp(x))
 
-def glob_files(data_root: Path, mode: str):
-    file_root = data_root / mode
-    scenario_files = list(file_root.rglob("*.parquet"))
-    return scenario_files
+PREAMBLE_STATIC = """
+    distance(intersection) <- source("/star_map/distance/intersection", Density).
+    distance(crosswalk) <- source("/star_map/distance/crosswalk", Density).
+    distance(vehicle_lane) <- source("/star_map/distance/vehicle_lane", Density.
+    distance(bike_lane) <- source("/star_map/distance/bike_lane", Density).
+    distance(bus_lane) <- source("/star_map/distance/bus_lane", Density).
+    
+    over(drivable_area) <- source("/star_map/over/drivable_area", Probability).
+    over(vehicle_lane) <- source("/star_map/over/vehicle_lane", Probability).
+    over(bike_lane) <- source("/star_map/over/bike_lane", Probability).
+    over(bus_lane) <- source("/star_map/over/bus_lane", Probability).
+    over(crosswalk) <- source("/star_map/over/crosswalk", Probability).
+    over(intersection) <- source("/star_map/over/intersection", Probability).
+""" 
+
+PREAMBLE_DYNAMIC = """
+    distance(vehicle) <- source("/star_map/distance/vehicle", Density).
+    distance(pedestrian) <- source("/star_map/distance/pedestrian", Density).
+    distance(bus) <- source("/star_map/distance/bus", Density).
+    distance(bike) <- source("/star_map/distance/bike", Density).
+    distance(motorcycle) <- source("/star_map/distance/intersection", Density).
+
+    opposes(vehicle_lane_centerline) <- source("/star_map/opposes/vehicle_lane_centerline", Probability).
+    opposes(bike_lane_centerline) <- source("/star_map/opposes/bike_lane_centerline", Probability).
+    opposes(bus_lane_centerline) <- source("/star_map/opposes/bus_lane_centerline", Probability).
+
+    follows(vehicle_lane_centerline) <- source("/star_map/follows/vehicle_lane_centerline", Probability).
+    follows(bike_lane_centerline) <- source("/star_map/follows/bike_lane_centerline", Probability).
+    follows(bus_lane_centerline) <- source("/star_map/follows/bus_lane_centerline", Probability).
+    
+    intersects(dashed_line) <- source("/star_map/intersects/dashed_line", Probability).
+    intersects(solid_line) <- source("/star_map/intersects/solid_line", Probability).
+    intersects(crosswalk) <- source("/star_map/intersects/crosswalk", Probability).
+
+    enters(intersection) <- source("/star_map/enters/intersection", Probability).
+    enters(crosswalk) <- source("/star_map/enters/crosswalk", Probability).
+    enters(bike_lane) <- source("/star_map/enters/bike_lane", Probability).
+    enters(bus_lane) <- source("/star_map/enters/bus_lane", Probability).
+    enters(vehicle_lane) <- source("/star_map/enters/vehicle_lane", Probability).
+
+    exits(intersection) <- source("/star_map/exits/intersection", Probability).
+    exits(crosswalk) <- source("/star_map/exits/crosswalk", Probability).
+    exits(bike_lane) <- source("/star_map/exits/bike_lane", Probability).
+    exits(bus_lane) <- source("/star_map/exits/bus_lane", Probability).
+    exits(vehicle_lane) <- source("/star_map/exits/vehicle_lane", Probability).
+
+    speed <- source("/sensors/speed", Number).
+"""
 
 def tracs_pipeline(
         scenario_id: str,
@@ -88,6 +129,7 @@ def tracs_pipeline(
         path=data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json",
         feature_description=feature_description,
     ).to_cartesian_map()
+    static_map.apply_covariance(0.2 * np.eye(2))
 
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
@@ -197,43 +239,127 @@ def tracs_pipeline(
         return scored_predictions
 
 
+def _cache_star_maps(
+        scenario_id: str,
+        feature_description: dict[str, str | list[str]],
+        prediction_path: Path,
+        data_root: Path,
+        mode: str,
+    ) -> None:
 
-def preprocess(args):
+    static_map = AV2StaticMapLoader(
+        path=data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json",
+        feature_description=feature_description,
+    ).to_cartesian_map()
+    static_map.apply_covariance(0.0025 * np.eye(2))
+
+    agent_loader = AV2AgentLoader(
+        prediction_path=prediction_path,
+        split_path=data_root / mode / "raw",
+        scenario_id=scenario_id,
+    )
+
+    agent_loader.reset()
+    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
+
+    uam = CartesianMap(None, static_map.features + agent_loader.features)
+    star_map = StaRMap(uam)
+
+    x_pred_flat = np.array([f_pred["x_traj"] for f_pred in agent_loader.focal_predictions]).ravel()
+    y_pred_flat = np.array([f_pred["y_traj"] for f_pred in agent_loader.focal_predictions]).ravel()
+    xmin, xmax = x_pred_flat.min(), x_pred_flat.max()
+    ymin, ymax = y_pred_flat.min(), y_pred_flat.max()
+
+    raster = CartesianRasterBand(
+        origin=None,
+        resolution=(10, 10),
+        width=xmax - xmin + BUFFER_SPACE,
+        height=ymax - ymin + BUFFER_SPACE,
+    )   
+    raster.data["east"] += (xmin + xmax) / 2
+    raster.data["north"] += (ymin + ymax) / 2
+
+    star_map.initialize(
+        evaluation_points=raster,
+        number_of_random_maps=NUM_MAPS,
+        logic=PREAMBLE_STATIC, # TODO decide what to cache
+    )
+    def candidate_sampler():
+        collection = CartesianCollection.make_latin_hypercube(None, raster.width, raster.height, number_of_samples=50, include_corners=True)
+        collection.data["east"] += (xmin + xmax) / 2
+        collection.data["north"] += (ymin + ymax) / 2
+        return collection
+
+    star_map.adaptive_sample(
+        candidate_sampler=candidate_sampler,
+        number_of_random_maps=20,
+        number_of_iterations=20,
+        number_of_improvement_points=10,
+        acquisition_method = "gaussian_process"
+    )
+
+    star_map.save(data_root / "star_maps" / f"{scenario_id}.pkl")
+
+
+def main(args):
     data_root = Path(args.data_root)
 
+    LIMIT = 1
     for mode in ["test"]:
         os.makedirs(data_root / "tracs_predictions" / mode, exist_ok=True)
         
         mode_dir = data_root / mode / "raw"
-        scenario_files = os.listdir(mode_dir)[::100]
+        scenario_files = os.listdir(mode_dir)[:LIMIT]
 
-        pipeline_func = partial(
-            tracs_pipeline,
-            logic=tracs_logic,
-            feature_description=FEATURE_DESCRIPTION,
-            prediction_path=args.initial_predictions,
-            # scenario_id remains as a variable argument 
-            data_root=data_root,
-            mode=mode,
-            write=True,
-        )
+        if args.cache: 
+            os.makedirs(data_root / "star_maps" / mode, exist_ok=True)
 
-        if args.parallel:
-            with multiprocessing.Pool(N_WORKERS) as p:
-                for _ in tqdm(p.imap(pipeline_func, scenario_files), total=len(scenario_files)):
-                    pass
-        else:
-            for file in tqdm(scenario_files):
-                pipeline_func(file)
+            cache_star = partial(
+                _cache_star_maps,
+                # scenario_id remains as a variable argument 
+                feature_description=FEATURE_DESCRIPTION,
+                prediction_path=args.initial_predictions,
+                data_root=data_root,
+                mode=mode,
+            )
+
+            if args.parallel:
+                with multiprocessing.Pool(N_WORKERS) as p:
+                    for _ in tqdm(p.imap(cache_star, scenario_files), total=len(scenario_files)):
+                        pass
+            else:
+                for file in tqdm(scenario_files):
+                    print(file)
+                    cache_star(file)
+
+        if not args.cache: 
+            pipeline_func = partial(
+                tracs_pipeline,
+                logic=tracs_logic,
+                feature_description=FEATURE_DESCRIPTION,
+                prediction_path=args.initial_predictions,
+                # scenario_id remains as a variable argument 
+                data_root=data_root,
+                mode=mode,
+                write=True,
+            )
+
+            if args.parallel:
+                with multiprocessing.Pool(N_WORKERS) as p:
+                    for _ in tqdm(p.imap(pipeline_func, scenario_files), total=len(scenario_files)):
+                        pass
+            else:
+                for file in tqdm(scenario_files):
+                    pipeline_func(file)
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--data_root", "-d", type=str, default='/path/to/data_root')
-    # parser.add_argument("--batch", "-b", type=int, default=50)
     parser.add_argument("--parallel", "-p", action="store_true")
+    parser.add_argument("--cache", "-c", action="store_true")
     parser.add_argument("--initial_predictions", "-i", type=str, default=None)
 
     args = parser.parse_args()
 
-    preprocess(args)
+    main(args)

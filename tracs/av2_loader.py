@@ -116,7 +116,7 @@ class AV2StaticMapLoader(SpatialLoader):
 
             centerline = self._av2_map.get_lane_segment_centerline(ls.id)
             center_coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in centerline]
-            self.features.append(CartesianPolyLine(center_coords, location_type=f"{lane_type}_center"))
+            self.features.append(CartesianPolyLine(center_coords, location_type=f"{lane_type}_centerline"))
 
             for lane_marking in [ls.left_lane_marking, ls.right_lane_marking]:
                 lane_marking_type = inverted_fd.get(lane_marking.mark_type.value, str(lane_marking.mark_type.value))
@@ -240,3 +240,12 @@ class AV2AgentLoader(SpatialLoader):
         """Reset the agents to their initial positions."""
         self.current_index = 0
         self._build_features()
+
+    def get_focal_type_fact(self) -> str:
+        """Get a Resin fact that describes the focal agent type.
+
+        Returns:
+            One of "is_vehile.", "is_bus.", "is_cyclist.", "is_motorcyclist." or "is_pedestrian."
+        """
+        return f"is_{self.focal_predictions["agent_type"]}.\n"
+        
