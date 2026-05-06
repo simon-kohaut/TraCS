@@ -123,5 +123,12 @@ tracs_add_judge output/1_halt_claude-opus-4-7_seed1.json \
 
 - Probabilistic predicates
 - scenarios:
-    - vielleicht irgendwann: andere autos explizit modellieren -> cool weil first oder
+    - vielleicht irgendwann: andere autos explizit modellieren und dann:
+    ```
+    distance(vehicle1) ← source(“…“).
+    distance(vehicle2) ← source(“…“).
+    is_vehicle(vehicle1).
+    safe_car if is_vehicle(X) and distance(X) > 5.
+    landscape if safe_car.
+    ```
 - could make it easier to query multiple LLMs in parallel: https://gemini.google.com/share/3005c3443542

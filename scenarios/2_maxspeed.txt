@@ -1,1 +1,0 @@
-Vehicles mostly obey the respective speed limits. The global speed limit is 100 km/h. This rule only applies to vehicles on roads. 

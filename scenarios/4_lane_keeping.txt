@@ -1,1 +1,1 @@
-Vehicles drive on the correct side of the road. We model right-hand traffic. This only applies to vehicles on roads.
+Additionally, ensure that vehicles follow the respective centerlines of the lane types.

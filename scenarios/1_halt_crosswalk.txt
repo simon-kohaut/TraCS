@@ -1,0 +1,1 @@
+Vehicles halt before crossing a crosswalk. Halting means their speed drops substantially.
