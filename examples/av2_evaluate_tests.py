@@ -7,7 +7,7 @@ from av2.datasets.motion_forecasting.eval import metrics
 import pandas as pd
 import numpy as np 
 
-from tqdm import tqdm
+from rich.progress import track
 from pathlib import Path
 import click
 import os
@@ -39,7 +39,9 @@ def main(gt_path, sub_path, write_to, export_path):
 
     metrics_df = pd.DataFrame(columns=["scenario_id", "track_id", "minADE6", "minFDE6", "brier_minADE6", "brier_minFDE6", "is_missed_prediction6", "minADE1", "minFDE1", "brier_minADE1", "brier_minFDE1", "is_missed_prediction1"])
 
-    for file in os.listdir(sub_path):
+    pred_files = sorted([f for f in os.listdir(sub_path) if f.endswith(".parquet")])
+
+    for file in track(pred_files, description="Evaluating submissions", transient=True):
         pred = pd.read_parquet(sub_path / file)
         scenario_id = file[:-8] # no .parquet ending
         track_id = pred.iloc[0]["track_id"]
@@ -62,7 +64,10 @@ def main(gt_path, sub_path, write_to, export_path):
 
             ade = metrics.compute_ade(pred_track, gt_track)
             fde = metrics.compute_fde(pred_track, gt_track)
-            
+            brier_ade = metrics.compute_brier_ade(pred_track, gt_track, pred_prob)
+            brier_fde = metrics.compute_brier_fde(pred_track, gt_track, pred_prob)
+            is_missed = metrics.compute_is_missed_prediction(pred_track, gt_track)
+
             metrics_df_row = {
                 "scenario_id": scenario_id,
                 "track_id": track_id,
@@ -71,12 +76,12 @@ def main(gt_path, sub_path, write_to, export_path):
                 "minFDE6": fde.min(),
                 "minADE1": ade[most_prob_index],
                 "minFDE1": fde[most_prob_index],
-                "brier_minADE6": ade[ade.argmin()] + (1.0 - pred_prob[ade.argmin()])**2,
-                "brier_minFDE6": fde[fde.argmin()] + (1.0 - pred_prob[fde.argmin()])**2,
-                "brier_minADE1": ade[most_prob_index] + (1.0 - pred_prob[most_prob_index])**2,
-                "brier_minFDE1": fde[most_prob_index] + (1.0 - pred_prob[most_prob_index])**2,
-                "is_missed_prediction6": metrics.compute_is_missed_prediction(pred_track, gt_track).min(),
-                "is_missed_prediction1": metrics.compute_is_missed_prediction(pred_track, gt_track)[most_prob_index],
+                "brier_minADE6": brier_ade[ade.argmin()],
+                "brier_minFDE6": brier_fde[fde.argmin()],
+                "brier_minADE1": brier_ade[most_prob_index],
+                "brier_minFDE1": brier_fde[most_prob_index],
+                "is_missed_prediction6": is_missed.min(),
+                "is_missed_prediction1": is_missed[most_prob_index],
             }
             metrics_df = pd.concat([metrics_df, pd.DataFrame(metrics_df_row, index=[0])], ignore_index=True)
 
