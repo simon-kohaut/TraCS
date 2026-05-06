@@ -17,9 +17,10 @@ from promis import StaRMap, ProMis
 from promis.geo import CartesianMap, CartesianRasterBand, CartesianCollection
 
 N_WORKERS = 32
-NUM_MAPS = 10
+NUM_MAPS = 25
 
-STEP_SIZE = 5
+STEP_SIZE = 1
+SCENARIO_LENGTH = 60
 
 BUFFER_SPACE = 40
 X_RES, Y_RES = 50, 50
@@ -95,6 +96,7 @@ def tracs_pipeline(
     )
 
     agent_loader.reset()
+    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
 
     uam = CartesianMap(None, static_map.features + agent_loader.features)
     star_map = StaRMap(uam)
@@ -143,7 +145,7 @@ def tracs_pipeline(
     # TODO add gt evaluation here already?
 
     interpolator: callable
-    for timestep in range(0, num_timesteps, STEP_SIZE): 
+    for timestep in range(0, num_timesteps-1): 
         # score first self.update_frequency positions on one star map 
         landscape = promis.update()
         if landscape is not None:
@@ -151,20 +153,29 @@ def tracs_pipeline(
 
         for prediction in agent_loader.focal_predictions:
             coords = np.array([
-                prediction["x_traj"][timestep:timestep+STEP_SIZE],
-                prediction["y_traj"][timestep:timestep+STEP_SIZE],
+                prediction["x_traj"][timestep],
+                prediction["y_traj"][timestep],
             ])
             tracs_scores: list = prediction.get("tracs_scores", [])
             tracs_scores.extend(interpolator(coords.T))
             prediction["tracs_scores"] = tracs_scores
 
         agent_loader.update(STEP_SIZE)
-        uam.features = static_map.features + agent_loader.features
+        uam.features = agent_loader.features
         agent_locations = CartesianCollection(None)
+        positions = np.vstack([np.array([a["x_traj"], a["y_traj"]])[:, timestep] for a in agent_loader.focal_predictions])
+        if timestep < SCENARIO_LENGTH - 1:
+            next_positions = np.vstack([np.array([a["x_traj"], a["y_traj"]])[:, timestep+1] for a in agent_loader.focal_predictions])
+            transitions=np.hstack((next_positions, np.zeros((len(agent_loader.focal_predictions), 1))))
+        
         agent_locations.append_with_default(
-            np.vstack([normal(a.to_numpy().T, 15.0, [50, 2]) for a in agent_loader.features]), 0.0
+            coordinates=positions,
+            value=0.0,
+            transitions=transitions,
         )
-        star_map.update("distance", "vehicle", agent_locations, 25) # TODO make less specific
+        star_map.update("distance", "vehicle", agent_locations, 2) # TODO make less specific
+        # TODO update only on next steps per trajectories, not entire raster
+        # for the starmap update, only features mentioned in the update are necessary. 
 
     # post processing
     for prediction in agent_loader.focal_predictions:

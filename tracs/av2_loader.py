@@ -15,6 +15,7 @@ from pathlib import Path
 # Third Party
 from av2.map.map_api import ArgoverseStaticMap
 import pandas as pd
+import numpy as np
 
 # ProMis
 from promis.geo import CartesianLocation, CartesianPolygon, CartesianPolyLine, CartesianMap
@@ -145,6 +146,22 @@ class AV2AgentLoader(SpatialLoader):
 
         self.load()
 
+    def apply_covariance(self, covariance: dict[str, float]) -> None:
+        """
+        Set covariance for the agent features. If "all" is in covariance, use only that.
+        
+        Args: 
+            covariance: dict[str, float], mapping vehicle type to covariance matrix.
+        """
+
+        if "all" in covariance:
+            for agent in self.agents:
+                agent["covariance"] = covariance["all"]
+        else:
+            for agent in self.agents:
+                agent["covariance"] = covariance.get(agent["agent_type"], 1)
+        
+
     def load(self) -> None:
         """Load predicted trajectories for the specified scenario from the prediction parquet file."""
         df = pd.read_parquet(self.prediction_path)
@@ -168,7 +185,8 @@ class AV2AgentLoader(SpatialLoader):
                 "probability": prob,
                 "x_traj": x_traj,
                 "y_traj": y_traj,
-                "agent_type": agent_type
+                "agent_type": agent_type,
+                "covariance": 1,
             }
 
             if track_id == focal_track_id:
@@ -202,7 +220,12 @@ class AV2AgentLoader(SpatialLoader):
             # TODO: incorporate agent["probability"] for certainty in prediction? 
 
             self.features.append(
-                CartesianLocation(east=x, north=y, name=agent['track_id'], location_type=agent["agent_type"],)
+                CartesianLocation(
+                    east=x, north=y, 
+                    name=agent['track_id'], 
+                    location_type=agent["agent_type"], 
+                    covariance=agent["covariance"] * np.eye(2),
+                )
             )
 
     def to_cartesian_map(self) -> CartesianMap:
