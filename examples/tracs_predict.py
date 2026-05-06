@@ -1,7 +1,5 @@
-
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import List
 import multiprocessing
 from functools import partial
 from tqdm import tqdm
@@ -10,26 +8,23 @@ import os
 
 import pandas as pd
 import numpy as np
-from numpy.random import normal
 
 from tracs.av2_loader import AV2AgentLoader, AV2StaticMapLoader
 from promis import StaRMap, ProMis
 from promis.geo import CartesianMap, CartesianRasterBand, CartesianCollection
 
-N_WORKERS = 32
-NUM_MAPS = 25
+N_WORKERS = 75
+NUM_MAPS = 20
 
 STEP_SIZE = 1
 SCENARIO_LENGTH = 60
 
-BUFFER_SPACE = 40
-X_RES, Y_RES = 100, 100
+BUFFER_SPACE = 20
+X_RES, Y_RES = 50, 50
 RESOLUTION = X_RES * Y_RES
 
 MODALITIES = 6
 TRUST = 0.4
-
-# TODO covariance
 
 tracs_logic = """
 distance(vehicle) <- source("/star_map/distance/vehicle", Density).
@@ -69,7 +64,7 @@ FEATURE_DESCRIPTION = {
 PREAMBLE_STATIC = """
     distance(intersection) <- source("/star_map/distance/intersection", Density).
     distance(crosswalk) <- source("/star_map/distance/crosswalk", Density).
-    distance(vehicle_lane) <- source("/star_map/distance/vehicle_lane", Density.
+    distance(vehicle_lane) <- source("/star_map/distance/vehicle_lane", Density).
     distance(bike_lane) <- source("/star_map/distance/bike_lane", Density).
     distance(bus_lane) <- source("/star_map/distance/bus_lane", Density).
     
@@ -272,7 +267,7 @@ def _cache_star_maps(
 
     raster = CartesianRasterBand(
         origin=None,
-        resolution=(10, 10),
+        resolution= (X_RES, Y_RES), #(10, 10),
         width=xmax - xmin + BUFFER_SPACE,
         height=ymax - ymin + BUFFER_SPACE,
     )   
@@ -282,34 +277,35 @@ def _cache_star_maps(
     star_map.initialize(
         evaluation_points=raster,
         number_of_random_maps=NUM_MAPS,
-        logic=PREAMBLE_STATIC, # TODO decide what to cache
-    )
-    def candidate_sampler():
-        collection = CartesianCollection.make_latin_hypercube(None, raster.width, raster.height, number_of_samples=50, include_corners=True)
-        collection.data["east"] += (xmin + xmax) / 2
-        collection.data["north"] += (ymin + ymax) / 2
-        return collection
-
-    star_map.adaptive_sample(
-        candidate_sampler=candidate_sampler,
-        number_of_random_maps=20,
-        number_of_iterations=20,
-        number_of_improvement_points=10,
-        acquisition_method = "gaussian_process"
+        logic=PREAMBLE_STATIC,
     )
 
-    star_map.save(data_root / "star_maps" / f"{scenario_id}.pkl")
+    # def candidate_sampler():
+    #     collection = CartesianCollection.make_latin_hypercube(None, raster.width, raster.height, number_of_samples=100, include_corners=True)
+    #     collection.data["east"] += (xmin + xmax) / 2
+    #     collection.data["north"] += (ymin + ymax) / 2
+    #     return collection
+
+    # star_map.adaptive_sample(
+    #     candidate_sampler=candidate_sampler,
+    #     number_of_random_maps=20,
+    #     number_of_iterations=10,
+    #     number_of_improvement_points=25,
+    #     acquisition_method = "entropy",
+    #     scaler=5,
+    # )
+
+    star_map.save(data_root / "star_maps_all" / f"{scenario_id}.pkl")
 
 
 def main(args):
     data_root = Path(args.data_root)
 
-    LIMIT = 1
     for mode in ["test"]:
         os.makedirs(data_root / "tracs_predictions" / mode, exist_ok=True)
         
         mode_dir = data_root / mode / "raw"
-        scenario_files = os.listdir(mode_dir)[:LIMIT]
+        scenario_files = os.listdir(mode_dir)
 
         if args.cache: 
             os.makedirs(data_root / "star_maps" / mode, exist_ok=True)

@@ -12,8 +12,9 @@ from pathlib import Path
 import click
 import os
 
-test_anno_path = Path("/workspaces/datasets/av2_mp/av2_mf_focal_test_annotations.parquet")
-submission_path = Path("/workspaces/QCNet/results/QCNet_submission.parquet")
+test_anno_path = Path("dataset/av2_mf_focal_test_annotations.parquet")
+# submission_path = Path("dataset/DeMo_submission_all.parquet")
+submission_path = Path("dataset/tracs_predictions/test")
 
 KEYS = ["probability", "tracs_weight_normalized", "tracs_factor"]
 

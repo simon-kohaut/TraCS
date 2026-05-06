@@ -16,7 +16,9 @@
 	},
 
 	"runArgs": [
-		"--add-host=host.docker.internal:host-gateway"
+		"--add-host=host.docker.internal:host-gateway",
+		"--shm-size", "100G",
+        // "--gpus", "\"device=03\"",
 	],
 
 	"customizations": {
@@ -25,13 +27,18 @@
 				"ms-python.python",
 				"ms-toolsai.jupyter",
 				"charliermarsh.ruff",
-				"tamasfe.even-better-toml"
+				"tamasfe.even-better-toml",
+				"Anthropic.claude-code"
 			]
 		}
 	},
 
+	"mounts": [
+        // "source=/home/ml-fdivo/repos/TraCS/dataset,target=/workspaces/datasets,type=bind,consistency=cached"
+    ],
+
 	"postCreateCommand": "bash .devcontainer/postCreate.sh",
 
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
-	// "remoteUser": "root"
+	"remoteUser": "root"
 }
