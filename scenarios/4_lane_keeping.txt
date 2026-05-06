@@ -1,1 +1,1 @@
-Additionally, ensure that vehicles follow the respective centerlines of the lane types.
+Ensure that vehicles follow the respective centerlines of the lane types.
