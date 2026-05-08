@@ -6,6 +6,14 @@
 pip install -e .
 ```
 
+To get the merged data:
+```shell
+gdown 1jf3ecRQ20IVDdH3GkYqKVkpsz3D5lC5G
+gdown 1P8VzAm8S80P6cmVXwXS_uHLX17aIK2uS
+```
+
+Move to `dataset/`.
+
 ## Usage
 
 Create a `.env` file in the root of the project with the following content:
