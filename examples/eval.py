@@ -187,26 +187,37 @@ def show_comparison_study(scored_predictions, data_root, mode, scenario_id):
             plot_scenario_roadlayout(av2_map, ax=axes[i, traj])
             axes[i, traj].set_aspect(1)
 
-        n_pts = len(scored_predictions.iloc[traj]["x_traj"])
+        x_traj = scored_predictions.iloc[traj]["x_traj"]
+        y_traj = scored_predictions.iloc[traj]["y_traj"]
+        n_pts = len(x_traj)
 
         sc0 = axes[0, traj].scatter(
-            scored_predictions.iloc[traj]["x_traj"],
-            scored_predictions.iloc[traj]["y_traj"],
+            x_traj,
+            y_traj,
             c=scored_predictions.iloc[traj]["tracs_scores"],
             cmap="coolwarm_r", norm=tracs_scores_norm
         )
         sc1 = axes[1, traj].scatter(
-            scored_predictions.iloc[traj]["x_traj"],
-            scored_predictions.iloc[traj]["y_traj"],
+            x_traj,
+            y_traj,
             c=[scored_predictions.iloc[traj]["probability"]] * n_pts,
             cmap="coolwarm_r", norm=prob_norm
         )
         sc2 = axes[2, traj].scatter(
-            scored_predictions.iloc[traj]["x_traj"],
-            scored_predictions.iloc[traj]["y_traj"],
+            x_traj,
+            y_traj,
             c=[scored_predictions.iloc[traj]["tracs_factor"]] * n_pts,
             cmap="coolwarm_r", norm=tracs_norm
         )
+
+        xmin, xmax = x_traj.min() - 20, x_traj.max() + 20
+        ymin, ymax = y_traj.min() - 20, y_traj.max() + 20
+        axes[0, traj].set_xlim(xmin, xmax)        
+        axes[1, traj].set_xlim(xmin, xmax)
+        axes[2, traj].set_xlim(xmin, xmax)
+        axes[0, traj].set_ylim(ymin, ymax)        
+        axes[1, traj].set_ylim(ymin, ymax)
+        axes[2, traj].set_ylim(ymin, ymax)
 
         axes[0, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
         axes[1, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
@@ -218,4 +229,5 @@ def show_comparison_study(scored_predictions, data_root, mode, scenario_id):
     axes[0, 0].set_ylabel(r"TraCS P($\tau_{k, i}$)")
     axes[1, 0].set_ylabel(r"Backbone P($\tau_k$)")
     axes[2, 0].set_ylabel(r"TraCS Guided P($\tau_k$)")
+    fig.suptitle(scenario_id)
     plt.show()
