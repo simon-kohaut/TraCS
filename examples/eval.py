@@ -47,6 +47,25 @@ def plot_scenario_roadlayout(av2_map, ax=None):
         )
 
 
+def plot_predicted_others(agent_loader, ax=None):
+    if ax is None:
+        ax = plt.gca()
+
+    total = len(agent_loader.agents) - 1
+    agent_loader.reset()
+    for timestep in range(total):
+        alpha = (timestep + 1) / total
+        current_state = agent_loader.features
+        agent_loader.update(1)
+        next_state = agent_loader.features
+
+        for before, after in zip(current_state, next_state):
+            ax.arrow(before.x, before.y, after.x - before.x, after.y - before.y,
+                     shape='full', lw=0, length_includes_head=True,
+                     head_width=1.5, head_length=1.5, alpha=alpha)
+    agent_loader.reset()
+
+
 def tracs_pointwise_to_score(pointwise_scores):
     N = len(pointwise_scores)
     return np.exp(np.sum(np.log(np.clip(pointwise_scores, 1e-8, 1.0))) / N)
@@ -174,6 +193,13 @@ def tracs_rate_scenario(
 
 
 def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenario_id):
+    # Load also other agents (predicted) paths
+    agent_loader = AV2AgentLoader(
+        prediction_path=data_root / "DeMo_submission_translated_merged.parquet",
+        split_path=data_root / mode / "raw",
+        scenario_id=scenario_id,
+    )
+
     # Render scenario once per trajectory and scoring method
     fig, axes = plt.subplots(nrows=4, ncols=6, figsize=(24, 12), layout='constrained', sharex=True, sharey=True)
 
@@ -208,6 +234,7 @@ def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenari
         ymin, ymax = y_traj.min() - 20, y_traj.max() + 20
         for i in range(4):
             plot_scenario_roadlayout(av2_map, ax=axes[i, traj])
+            plot_predicted_others(agent_loader, axes[i, traj])
             axes[i, traj].set_aspect(1)
             axes[i, traj].set_xlim(xmin, xmax)        
             axes[i, traj].set_ylim(ymin, ymax)   
