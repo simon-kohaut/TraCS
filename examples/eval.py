@@ -25,6 +25,7 @@ FEATURE_DESCRIPTION = {
     "dashed_line": ["DASHED_WHITE", "DASHED_YELLOW", "DOUBLE_DASH_YELLOW", "DOUBLE_DASH_WHITE",],
 } 
 
+
 def plot_scenario_roadlayout(av2_map, ax=None):
     if ax is None:
         ax = plt.gca()
@@ -44,6 +45,12 @@ def plot_scenario_roadlayout(av2_map, ax=None):
         vector_plotting_utils.plot_polygon_patch_mpl(
             pc.polygon, ax, color="dimgray", alpha=0.2
         )
+
+
+def tracs_pointwise_to_score(pointwise_scores):
+    N = len(pointwise_scores)
+    return np.exp(np.sum(np.log(np.clip(pointwise_scores, 1e-8, 1.0))) / N)
+
 
 def tracs_rate_traj(trajectory, logic, agent_loader, static_map, scenario_length: int = 60, write_speed: bool = True):
     # Decide dimensions of scneario
@@ -118,7 +125,7 @@ def tracs_rate_traj(trajectory, logic, agent_loader, static_map, scenario_length
             score = updated_landscape.values().item()
         
         tracs_scores.append(score)
-    
+
     return np.array(tracs_scores)
 
 
@@ -148,21 +155,27 @@ def tracs_rate_scenario(
     for prediction in agent_loader.focal_predictions:
         scores = tracs_rate_traj(prediction, logic, agent_loader, static_map, scenario_length)
         prediction["tracs_scores"] = scores.tolist()
-        prediction["tracs_score"] = scores.mean()
+        prediction["tracs_score"] = tracs_pointwise_to_score(scores)
         prediction["tracs_std"] = scores.std()
         prediction["tracs_weight"] = trust * prediction["tracs_score"] + (1 - trust) / 6
-        
+
+    ground_truth = pd.read_parquet(data_root / "av2_mf_focal_test_annotations.parquet")
+    ground_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
+    ground_truth_traj["x_traj"] = ground_truth_traj["gt_trajectory_x"]
+    ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
+    gt_score = tracs_pointwise_to_score(tracs_rate_traj(ground_truth_traj, logic, agent_loader, static_map, scenario_length))
+
     scored_predictions = pd.DataFrame(agent_loader.focal_predictions)
     scored_predictions["tracs_weight_normalized"] = scored_predictions["tracs_weight"] / np.sum(scored_predictions["tracs_weight"])
     scored_predictions["tracs_factor"] = scored_predictions["probability"] * scored_predictions["tracs_weight"] \
         / np.sum(scored_predictions["probability"] * scored_predictions["tracs_weight"] ) # or use only / np.sum() to normalize?
 
-    return scored_predictions
+    return scored_predictions, gt_score
 
 
-def show_comparison_study(scored_predictions, data_root, mode, scenario_id):
+def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenario_id):
     # Render scenario once per trajectory and scoring method
-    fig, axes = plt.subplots(nrows=3, ncols=6, figsize=(24, 12), layout='constrained')
+    fig, axes = plt.subplots(nrows=4, ncols=6, figsize=(24, 12), layout='constrained', sharex=True, sharey=True)
 
     # Load scneario
     av2_map = ArgoverseStaticMap.from_json(data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json")
@@ -172,62 +185,68 @@ def show_comparison_study(scored_predictions, data_root, mode, scenario_id):
     # Get normalized (scores for better viewing)
     tracs_scores_vals = np.concatenate(scored_predictions["tracs_scores"].values)
     tracs_scores_norm = plt.Normalize(vmin=tracs_scores_vals.min(), vmax=tracs_scores_vals.max())
-    prob_norm = plt.Normalize(
+    backbone_norm = plt.Normalize(
         vmin=scored_predictions["probability"].min(),
         vmax=scored_predictions["probability"].max()
     )
     tracs_norm = plt.Normalize(
+        vmin=scored_predictions["tracs_weight_normalized"].min(),
+        vmax=scored_predictions["tracs_weight_normalized"].max()
+    )
+    tracs_backbone_norm = plt.Normalize(
         vmin=scored_predictions["tracs_factor"].min(),
         vmax=scored_predictions["tracs_factor"].max()
     )
 
     # The actual plotting
     for traj in range(len(scored_predictions)):
-        for i in range(3):
-            plot_scenario_roadlayout(av2_map, ax=axes[i, traj])
-            axes[i, traj].set_aspect(1)
-
         x_traj = scored_predictions.iloc[traj]["x_traj"]
         y_traj = scored_predictions.iloc[traj]["y_traj"]
         n_pts = len(x_traj)
+
+        xmin, xmax = x_traj.min() - 20, x_traj.max() + 20
+        ymin, ymax = y_traj.min() - 20, y_traj.max() + 20
+        for i in range(4):
+            plot_scenario_roadlayout(av2_map, ax=axes[i, traj])
+            axes[i, traj].set_aspect(1)
+            axes[i, traj].set_xlim(xmin, xmax)        
+            axes[i, traj].set_ylim(ymin, ymax)   
 
         sc0 = axes[0, traj].scatter(
             x_traj,
             y_traj,
             c=scored_predictions.iloc[traj]["tracs_scores"],
-            cmap="coolwarm_r", norm=tracs_scores_norm
+            cmap="cool_r", norm=tracs_scores_norm
         )
         sc1 = axes[1, traj].scatter(
             x_traj,
             y_traj,
-            c=[scored_predictions.iloc[traj]["probability"]] * n_pts,
-            cmap="coolwarm_r", norm=prob_norm
+            c=[scored_predictions.iloc[traj]["tracs_weight_normalized"]] * n_pts,
+            cmap="cool_r", norm=tracs_norm
         )
         sc2 = axes[2, traj].scatter(
             x_traj,
             y_traj,
+            c=[scored_predictions.iloc[traj]["probability"]] * n_pts,
+            cmap="cool_r", norm=backbone_norm
+        )
+        sc3 = axes[3, traj].scatter(
+            x_traj,
+            y_traj,
             c=[scored_predictions.iloc[traj]["tracs_factor"]] * n_pts,
-            cmap="coolwarm_r", norm=tracs_norm
+            cmap="cool_r", norm=tracs_backbone_norm
         )
 
-        xmin, xmax = x_traj.min() - 20, x_traj.max() + 20
-        ymin, ymax = y_traj.min() - 20, y_traj.max() + 20
-        axes[0, traj].set_xlim(xmin, xmax)        
-        axes[1, traj].set_xlim(xmin, xmax)
-        axes[2, traj].set_xlim(xmin, xmax)
-        axes[0, traj].set_ylim(ymin, ymax)        
-        axes[1, traj].set_ylim(ymin, ymax)
-        axes[2, traj].set_ylim(ymin, ymax)
-
-        axes[0, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
-        axes[1, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
-        axes[2, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
+        for i in range(4):
+            axes[i, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
 
     fig.colorbar(sc0, ax=axes[0, :], label="Value")
     fig.colorbar(sc1, ax=axes[1, :], label="Value")
     fig.colorbar(sc2, ax=axes[2, :], label="Value")
-    axes[0, 0].set_ylabel(r"TraCS P($\tau_{k, i}$)")
-    axes[1, 0].set_ylabel(r"Backbone P($\tau_k$)")
-    axes[2, 0].set_ylabel(r"TraCS Guided P($\tau_k$)")
-    fig.suptitle(scenario_id)
+    fig.colorbar(sc3, ax=axes[3, :], label="Value")
+    axes[0, 0].set_ylabel(r"TraCS P($\tau_{k, i}$)", fontsize=15)
+    axes[1, 0].set_ylabel(r"TraCS P($\tau_k$)", fontsize=15)
+    axes[2, 0].set_ylabel(r"Backbone P($\tau_k$)", fontsize=15)
+    axes[3, 0].set_ylabel(r"TraCS Guided P($\tau_k$)", fontsize=15)
+    fig.suptitle(rf"P($\tau_\text{{gt}}$) = {gt_score:.3f} for {scenario_id}")
     plt.show()
