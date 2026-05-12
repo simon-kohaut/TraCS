@@ -13,20 +13,19 @@ import click
 import os
 
 test_anno_path = Path("dataset/av2_mf_focal_test_annotations.parquet")
-submission_path = Path("dataset/tracs_predictions/test")
-
-KEYS = ["probability", "tracs_weight_normalized", "tracs_factor"]
+pred_path = Path("dataset/tracs_predictions/test")
 
 @click.command()
 @click.option("--gt-path", default=test_anno_path, help="Path to the test annotations parquet file.")
-@click.option("--sub-path", default=submission_path, help="Path to the submission parquet file.")
+@click.option("--pred-path", default=pred_path, help="Path to the predictions; either a single parquet, or a directory with one parquet per scenario.")
 @click.option("--write-to", default=None, help="Path to write the computed metrics dataframe as a parquet file.")
 @click.option("--export-path", default=None, help="Path to export the metrics dataframe as a parquet file.")
-def main(gt_path, sub_path, write_to, export_path):
+@click.option("--mode", default="pipeline", type=click.Choice(["submission", "pipeline"]), help="Evaluate a single submission parquet, or a directory produced by the TraCS pipeline.")
+def main(gt_path, pred_path, write_to, export_path, mode):
 
     try:
         gt_path = Path(gt_path)
-        sub_path = Path(sub_path)
+        pred_path = Path(pred_path)
     except Exception as e:
         print(f"Error occurred while parsing paths: {e}")
         return
@@ -36,12 +35,32 @@ def main(gt_path, sub_path, write_to, export_path):
 
     rows = []
 
-    pred_files = sorted([f for f in os.listdir(sub_path) if f.endswith(".parquet")])
+    def directory_iterator(path):
+        pred_files = sorted([f for f in os.listdir(path) if f.endswith(".parquet")])
+        for file in pred_files:
+            pred = pd.read_parquet(path / file)
+            scenario_id = file[:-8] # no .parquet ending
+            track_id = pred.iloc[0]["track_id"]
+            yield (pred, scenario_id, track_id)
 
-    for file in track(pred_files, description="Evaluating submissions", transient=True):
-        pred = pd.read_parquet(sub_path / file)
-        scenario_id = file[:-8] # no .parquet ending
-        track_id = pred.iloc[0]["track_id"]
+    def one_parquet_iterator(path):
+        pred_df = pd.read_parquet(path)
+        pred_df.rename(columns={"predicted_trajectory_x": "x_traj", "predicted_trajectory_y": "y_traj"}, inplace=True)
+        gb = pred_df.groupby(["scenario_id", "track_id"])
+        for (scenario_id, track_id), pred in gb:
+            yield (pred, scenario_id, track_id)
+
+    match mode:
+        case "submission":
+            keys = ["probability"]
+            iterator = one_parquet_iterator(pred_path)
+        case "pipeline":
+            keys = ["probability", "tracs_weight_normalized", "tracs_factor"]
+            iterator = directory_iterator(pred_path)
+
+    for (pred, scenario_id, track_id) in track(iterator, description="Evaluating submissions", transient=True): 
+        if (scenario_id, track_id) not in gt_df_grouped.groups:
+            continue # only score focal tracks; focal annotation contains only focal truths
         gt = gt_df_grouped.get_group((scenario_id, track_id))
         
         pred_track = np.moveaxis(
@@ -58,7 +77,7 @@ def main(gt_path, sub_path, write_to, export_path):
         fde = metrics.compute_fde(pred_track, gt_track)
         is_missed = metrics.compute_is_missed_prediction(pred_track, gt_track)
 
-        for key in KEYS:
+        for key in keys:
             pred_prob = pred[key].to_numpy()
             most_prob_index = pred_prob.argmax()
 
@@ -88,8 +107,8 @@ def main(gt_path, sub_path, write_to, export_path):
     if write_to is not None:
         try:
             with open(write_to, "w") as f:
-                    print(sub_path.name, gt_path.name, file=f)
-                    for key in KEYS:
+                    print(pred_path.name, gt_path.name, file=f)
+                    for key in keys:
                         print(key, file=f)
                         result = metrics_df[metrics_df["key"] == key][["minADE6", "brier_minADE6", "brier_minFDE6", "minFDE6", "is_missed_prediction6", "minADE1", "brier_minADE1", "brier_minFDE1", "minFDE1", "is_missed_prediction1"]]
                         print(result.mean(), file=f)
