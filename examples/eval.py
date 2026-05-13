@@ -1,4 +1,5 @@
 # Standard Library
+import copy
 from pathlib import Path
 import time
 
@@ -7,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import av2.rendering.vector as vector_plotting_utils
+from av2.datasets.motion_forecasting.eval import metrics
 from av2.map.map_api import ArgoverseStaticMap
 from promis import StaRMap, ProMis
 from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection
@@ -51,18 +53,17 @@ def plot_predicted_others(agent_loader, ax=None):
     if ax is None:
         ax = plt.gca()
 
-    total = len(agent_loader.agents) - 1
     agent_loader.reset()
-    for timestep in range(total):
-        alpha = (timestep + 1) / total
+    for timestep in range(60):
+        alpha = (timestep + 1) / 60.0
         current_state = agent_loader.features
         agent_loader.update(1)
         next_state = agent_loader.features
 
         for before, after in zip(current_state, next_state):
             ax.arrow(before.x, before.y, after.x - before.x, after.y - before.y,
-                     shape='full', lw=0, length_includes_head=True,
-                     head_width=1.5, head_length=1.5, alpha=alpha)
+                     shape='full', lw=0, length_includes_head=True, color="green",
+                     head_width=3.5, head_length=1.5, alpha=alpha)
     agent_loader.reset()
 
 
@@ -71,34 +72,67 @@ def tracs_pointwise_to_score(pointwise_scores):
     return np.exp(np.sum(np.log(np.clip(pointwise_scores, 1e-8, 1.0))) / N)
 
 
-def tracs_rate_traj(trajectory, logic, agent_loader, static_map, scenario_length: int = 60, write_speed: bool = True):
-    # Decide dimensions of scneario
+def tracs_rate_all(
+        promis, 
+        trajectories,
+        speed_writer,
+        agent_loader, 
+        static_map,
+        scenario_length = 60,
+    ) -> None:
+    agent_loader.reset()
+    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
+
+    num_timesteps = len(trajectories[0]["x_traj"])
+    tracs_scores = np.zeros((len(trajectories), num_timesteps))
+    for timestep in range(0, num_timesteps):
+        # Get next predicted locations and transitions
+        agent_loader.update(1)
+        promis.star_map.uam.features = static_map.features + agent_loader.features
+        agent_locations = CartesianCollection(None)
+        positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep] for p in trajectories])
+
+        # At the end of predicted trajectory we repeat transition velocity
+        if timestep < scenario_length - 1:
+            next_positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep+1] for p in trajectories])
+            transitions=np.hstack((next_positions - positions, np.zeros((len(trajectories), 1))))
+        
+        # Update at trajectory location and transition
+        agent_locations.append_with_default(
+            coordinates=positions,
+            value=0.0,
+            transitions=transitions,
+        )
+
+        # Write new data via StaR Map
+        relations = promis.star_map.get_all()
+        for relation in relations:
+            for location_type in relations[relation]:
+                    promis.star_map.update(relation, location_type, agent_locations, 10)
+
+        if speed_writer is not None:
+            distance_traveled_km = np.linalg.norm(transitions / 1000.0, axis=1)
+            time_in_hrs = 0.1 / 60 / 60
+            speed = distance_traveled_km / time_in_hrs
+            speed_writer.write(speed, time.monotonic())
+
+        # Get new inference results and append as tracs scores
+        time.sleep(0.01)  # Ensures that all data has already transferred
+        promis._evaluation_points = agent_locations
+        updated_landscape = promis.update()
+        if updated_landscape is not None:
+            landscape = updated_landscape
+
+        for i in range(len(trajectories)):
+            tracs_scores[i, timestep] = landscape.values()[i, 0]
+
+    return tracs_scores
+
+
+def tracs_rate_traj(promis, trajectory, speed_writer, agent_loader, static_map, scenario_length: int = 60, last_score = 0):
+    # Get trajectory xs and ys
     x_traj = trajectory["x_traj"]
     y_traj = trajectory["y_traj"]
-    xmin, xmax = x_traj.min(), x_traj.max()
-    ymin, ymax = y_traj.min(), y_traj.max()
-
-    # Initialize StaR Map and ProMis
-    raster = CartesianRasterBand(
-        origin=None,
-        resolution=(1, 1),
-        width=xmax - xmin + 50,
-        height=ymax - ymin + 50,
-    )   
-    raster.data["east"] += (xmin + xmax) / 2
-    raster.data["north"] += (ymin + ymax) / 2
-
-    uam = CartesianMap(None, static_map.features + agent_loader.features)
-    star_map = StaRMap(uam)
-    star_map.initialize(
-        evaluation_points=raster,
-        number_of_random_maps=25,
-        logic=logic,
-    )
-    promis = ProMis(star_map, logic, 1)
-    promis.initialize(evaluation_points=raster, interpolation_method="nearest")
-    if write_speed:
-        speed_writer = promis._resin.make_writer_for("speed")
 
     num_timesteps = len(x_traj)
     agent_locations = CartesianCollection(None)
@@ -110,7 +144,6 @@ def tracs_rate_traj(trajectory, logic, agent_loader, static_map, scenario_length
         agent_loader.update(1)
 
         # Get next predicted locations and transitions
-        uam.features = static_map.features + agent_loader.features
         position = np.array([[x_traj[timestep], y_traj[timestep]]])
 
         # At the end of predicted trajectory we repeat transition velocity
@@ -125,13 +158,13 @@ def tracs_rate_traj(trajectory, logic, agent_loader, static_map, scenario_length
         agent_locations.data.loc[0, "delta_north"] = transition[0, 1]
 
         # Write new data via StaR Map
-        star_map.uam.features = static_map.features + agent_loader.features
-        relations = star_map.get_all()
+        promis.star_map.uam.features = static_map.features + agent_loader.features
+        relations = promis.star_map.get_all()
         for relation in relations:
             for location_type in relations[relation]:
-                    star_map.update(relation, location_type, agent_locations, 10, "nearest")
+                    promis.star_map.update(relation, location_type, agent_locations, 10, "nearest")
 
-        if write_speed:
+        if speed_writer is not None:
             distance_traveled_km = np.linalg.norm(transition[0, :2] / 1000.0)
             time_in_hrs = 0.1 / 60 / 60
             speed = distance_traveled_km / time_in_hrs
@@ -142,6 +175,9 @@ def tracs_rate_traj(trajectory, logic, agent_loader, static_map, scenario_length
         updated_landscape = promis.update()
         if updated_landscape is not None:
             score = updated_landscape.values().item()
+            last_score = score
+        else:
+            score = last_score
         
         tracs_scores.append(score)
 
@@ -155,7 +191,8 @@ def tracs_rate_scenario(
         data_root: Path,
         mode: str,
         scenario_length: int = 60,
-        trust: float = 1.0
+        trust: float = 1.0,
+        write_speed = True
     ) -> None:
     static_map = AV2StaticMapLoader(
         path=data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json",
@@ -171,25 +208,48 @@ def tracs_rate_scenario(
     agent_loader.reset()
     agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
 
-    for prediction in agent_loader.focal_predictions:
-        scores = tracs_rate_traj(prediction, logic, agent_loader, static_map, scenario_length)
-        prediction["tracs_scores"] = scores.tolist()
-        prediction["tracs_score"] = tracs_pointwise_to_score(scores)
-        prediction["tracs_std"] = scores.std()
-        prediction["tracs_weight"] = trust * prediction["tracs_score"] + (1 - trust) / 6
+    # Initialize StaR Map and ProMis
+    raster = CartesianRasterBand(
+        origin=None,
+        resolution=(7, 1),
+        width=1,
+        height=1,
+    )
 
+    star_map = StaRMap(CartesianMap(None))
+    star_map.initialize(
+        evaluation_points=raster,
+        number_of_random_maps=25,
+        logic=logic,
+    )
+
+    promis = ProMis(star_map, logic, 7)
+    promis.initialize(evaluation_points=raster, interpolation_method="nearest")
+    if write_speed:
+        speed_writer = promis._resin.make_writer_for("speed")
+    else:
+        speed_writer = None
+
+    # Get ground truth trajectory and append to predictions for rating
     ground_truth = pd.read_parquet(data_root / "av2_mf_focal_test_annotations.parquet")
     ground_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
     ground_truth_traj["x_traj"] = ground_truth_traj["gt_trajectory_x"]
     ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
-    gt_score = tracs_pointwise_to_score(tracs_rate_traj(ground_truth_traj, logic, agent_loader, static_map, scenario_length))
+    trajectories = agent_loader.focal_predictions + [ground_truth_traj]
+
+    scores = tracs_rate_all(promis, trajectories, speed_writer, agent_loader, static_map, scenario_length)
+    for i, prediction in enumerate(agent_loader.focal_predictions):
+        prediction["tracs_scores"] = scores[i]
+        prediction["tracs_score"] = tracs_pointwise_to_score(scores[i])
+        prediction["tracs_std"] = scores[i].std()
+        prediction["tracs_weight"] = trust * prediction["tracs_score"] + (1 - trust) / 6
 
     scored_predictions = pd.DataFrame(agent_loader.focal_predictions)
     scored_predictions["tracs_weight_normalized"] = scored_predictions["tracs_weight"] / np.sum(scored_predictions["tracs_weight"])
     scored_predictions["tracs_factor"] = scored_predictions["probability"] * scored_predictions["tracs_weight"] \
         / np.sum(scored_predictions["probability"] * scored_predictions["tracs_weight"] ) # or use only / np.sum() to normalize?
 
-    return scored_predictions, gt_score
+    return scored_predictions, tracs_pointwise_to_score(scores[6])
 
 
 def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenario_id):
@@ -243,24 +303,28 @@ def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenari
             x_traj,
             y_traj,
             c=scored_predictions.iloc[traj]["tracs_scores"],
+            s=15.0,
             cmap="cool_r", norm=tracs_scores_norm
         )
         sc1 = axes[1, traj].scatter(
             x_traj,
             y_traj,
             c=[scored_predictions.iloc[traj]["tracs_weight_normalized"]] * n_pts,
+            s=15.0,
             cmap="cool_r", norm=tracs_norm
         )
         sc2 = axes[2, traj].scatter(
             x_traj,
             y_traj,
             c=[scored_predictions.iloc[traj]["probability"]] * n_pts,
+            s=15.0,
             cmap="cool_r", norm=backbone_norm
         )
         sc3 = axes[3, traj].scatter(
             x_traj,
             y_traj,
             c=[scored_predictions.iloc[traj]["tracs_factor"]] * n_pts,
+            s=15.0,
             cmap="cool_r", norm=tracs_backbone_norm
         )
 
@@ -275,5 +339,60 @@ def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenari
     axes[1, 0].set_ylabel(r"TraCS P($\tau_k$)", fontsize=15)
     axes[2, 0].set_ylabel(r"Backbone P($\tau_k$)", fontsize=15)
     axes[3, 0].set_ylabel(r"TraCS Guided P($\tau_k$)", fontsize=15)
+    for i in range(6):
+        axes[3, i].set_xlabel(rf"Traj. $\tau_{i}$", fontsize=15)
+
     fig.suptitle(rf"P($\tau_\text{{gt}}$) = {gt_score:.3f} for {scenario_id}")
     plt.show()
+
+
+def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):
+    # Backbone, TraCS alone, Backbone & TraCS
+    KEYS = ["probability", "tracs_weight_normalized", "tracs_factor"]
+    MAPPING = {"probability": "Backbone", "tracs_weight_normalized": "TraCS", "tracs_factor": "TraCS & Backbone"}
+
+    # Get ground truth trajectory for comparison
+    ground_truth = pd.read_parquet(data_root / "av2_mf_focal_test_annotations.parquet")
+    gt_track = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
+    gt_track = np.array([gt_track["gt_trajectory_x"], gt_track["gt_trajectory_y"]]).T
+
+    predicted_tracks = np.moveaxis(
+        np.array(
+            [[*scored_predictions["x_traj"]], 
+            [*scored_predictions["y_traj"]]]
+        ),
+        source=[0, 1, 2], 
+        destination=[2, 0, 1],
+    )
+
+    rows = []
+
+    ade = metrics.compute_ade(predicted_tracks, gt_track)
+    fde = metrics.compute_fde(predicted_tracks, gt_track)
+    is_missed = metrics.compute_is_missed_prediction(predicted_tracks, gt_track)
+
+    for key in KEYS:
+        weights = scored_predictions[key].to_numpy()
+        most_prob_index = weights.argmax()
+
+        brier_ade = metrics.compute_brier_ade(predicted_tracks, gt_track, weights)
+        brier_fde = metrics.compute_brier_fde(predicted_tracks, gt_track, weights)
+
+        metrics_df_row = {
+            "scenario_id": scenario_id,
+            "track_id": scored_predictions.iloc[0]["track_id"],
+            "key": MAPPING[key],
+            "minADE6": ade.min(),
+            "minFDE6": fde.min(),
+            "minADE1": ade[most_prob_index],
+            "minFDE1": fde[most_prob_index],
+            "brier_minADE6": brier_ade[ade.argmin()],
+            "brier_minFDE6": brier_fde[fde.argmin()],
+            "brier_minADE1": brier_ade[most_prob_index],
+            "brier_minFDE1": brier_fde[most_prob_index],
+            "is_missed_prediction6": is_missed.min(),
+            "is_missed_prediction1": is_missed[most_prob_index],
+        }
+        rows.append(metrics_df_row)
+
+    return pd.DataFrame(rows)
