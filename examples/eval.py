@@ -191,7 +191,6 @@ def tracs_rate_scenario(
         data_root: Path,
         mode: str,
         scenario_length: int = 60,
-        trust: float = 1.0,
         write_speed = True
     ) -> None:
     static_map = AV2StaticMapLoader(
@@ -237,17 +236,24 @@ def tracs_rate_scenario(
     ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
     trajectories = agent_loader.focal_predictions + [ground_truth_traj]
 
+    # Score of TraCS alone
     scores = tracs_rate_all(promis, trajectories, speed_writer, agent_loader, static_map, scenario_length)
     for i, prediction in enumerate(agent_loader.focal_predictions):
-        prediction["tracs_scores"] = scores[i]
-        prediction["tracs_score"] = tracs_pointwise_to_score(scores[i])
-        prediction["tracs_std"] = scores[i].std()
-        prediction["tracs_weight"] = trust * prediction["tracs_score"] + (1 - trust) / 6
+        prediction["tracs_pointwise_scores"] = scores[i]
+        prediction["tracs_trajectory_score"] = tracs_pointwise_to_score(scores[i])
 
     scored_predictions = pd.DataFrame(agent_loader.focal_predictions)
-    scored_predictions["tracs_weight_normalized"] = scored_predictions["tracs_weight"] / np.sum(scored_predictions["tracs_weight"])
-    scored_predictions["tracs_factor"] = scored_predictions["probability"] * scored_predictions["tracs_weight"] \
-        / np.sum(scored_predictions["probability"] * scored_predictions["tracs_weight"] ) # or use only / np.sum() to normalize?
+    # Normalize TraCS scores
+    scored_predictions["tracs_trajectory_score"] /= np.sum(scored_predictions["tracs_trajectory_score"])
+    # Rename backbone score for clarity
+    scored_predictions["backbone_trajectory_score"] = scored_predictions["probability"]
+    del scored_predictions["probability"]
+    # Independent opinion pool (multiplicativ)
+    scored_predictions["tracs_backbone_independent_op"] = scored_predictions["backbone_trajectory_score"] * scored_predictions["tracs_trajectory_score"]
+    scored_predictions["tracs_backbone_independent_op"] /= np.sum(scored_predictions["tracs_backbone_independent_op"])
+    # Linear opinion pool (additiv)
+    scored_predictions["tracs_backbone_linear_op"] = scored_predictions["backbone_trajectory_score"] + scored_predictions["tracs_trajectory_score"]
+    scored_predictions["tracs_backbone_linear_op"] /= np.sum(scored_predictions["tracs_backbone_linear_op"])
 
     return scored_predictions, tracs_pointwise_to_score(scores[6])
 
@@ -261,7 +267,7 @@ def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenari
     )
 
     # Render scenario once per trajectory and scoring method
-    fig, axes = plt.subplots(nrows=4, ncols=6, figsize=(24, 12), layout='constrained', sharex=True, sharey=True)
+    fig, axes = plt.subplots(nrows=5, ncols=6, figsize=(15, 10), layout='constrained', sharex=True, sharey=True)
 
     # Load scneario
     av2_map = ArgoverseStaticMap.from_json(data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json")
@@ -269,19 +275,23 @@ def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenari
     grount_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
     
     # Get normalized (scores for better viewing)
-    tracs_scores_vals = np.concatenate(scored_predictions["tracs_scores"].values)
+    tracs_scores_vals = np.concatenate(scored_predictions["tracs_pointwise_scores"].values)
     tracs_scores_norm = plt.Normalize(vmin=tracs_scores_vals.min(), vmax=tracs_scores_vals.max())
     backbone_norm = plt.Normalize(
-        vmin=scored_predictions["probability"].min(),
-        vmax=scored_predictions["probability"].max()
+        vmin=scored_predictions["backbone_trajectory_score"].min(),
+        vmax=scored_predictions["backbone_trajectory_score"].max()
     )
     tracs_norm = plt.Normalize(
-        vmin=scored_predictions["tracs_weight_normalized"].min(),
-        vmax=scored_predictions["tracs_weight_normalized"].max()
+        vmin=scored_predictions["tracs_trajectory_score"].min(),
+        vmax=scored_predictions["tracs_trajectory_score"].max()
     )
-    tracs_backbone_norm = plt.Normalize(
-        vmin=scored_predictions["tracs_factor"].min(),
-        vmax=scored_predictions["tracs_factor"].max()
+    tracs_backbone_iop_norm = plt.Normalize(
+        vmin=scored_predictions["tracs_backbone_independent_op"].min(),
+        vmax=scored_predictions["tracs_backbone_independent_op"].max()
+    )
+    tracs_backbone_lop_norm = plt.Normalize(
+        vmin=scored_predictions["tracs_backbone_linear_op"].min(),
+        vmax=scored_predictions["tracs_backbone_linear_op"].max()
     )
 
     # The actual plotting
@@ -292,7 +302,7 @@ def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenari
 
         xmin, xmax = x_traj.min() - 20, x_traj.max() + 20
         ymin, ymax = y_traj.min() - 20, y_traj.max() + 20
-        for i in range(4):
+        for i in range(5):
             plot_scenario_roadlayout(av2_map, ax=axes[i, traj])
             plot_predicted_others(agent_loader, axes[i, traj])
             axes[i, traj].set_aspect(1)
@@ -302,45 +312,66 @@ def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenari
         sc0 = axes[0, traj].scatter(
             x_traj,
             y_traj,
-            c=scored_predictions.iloc[traj]["tracs_scores"],
+            c=scored_predictions.iloc[traj]["tracs_pointwise_scores"],
             s=15.0,
             cmap="cool_r", norm=tracs_scores_norm
         )
         sc1 = axes[1, traj].scatter(
             x_traj,
             y_traj,
-            c=[scored_predictions.iloc[traj]["tracs_weight_normalized"]] * n_pts,
+            c=[scored_predictions.iloc[traj]["tracs_trajectory_score"]] * n_pts,
             s=15.0,
-            cmap="cool_r", norm=tracs_norm
+            cmap="cool_r", norm=backbone_norm
         )
         sc2 = axes[2, traj].scatter(
             x_traj,
             y_traj,
-            c=[scored_predictions.iloc[traj]["probability"]] * n_pts,
+            c=[scored_predictions.iloc[traj]["backbone_trajectory_score"]] * n_pts,
             s=15.0,
-            cmap="cool_r", norm=backbone_norm
+            cmap="cool_r", norm=tracs_norm
         )
         sc3 = axes[3, traj].scatter(
             x_traj,
             y_traj,
-            c=[scored_predictions.iloc[traj]["tracs_factor"]] * n_pts,
+            c=[scored_predictions.iloc[traj]["tracs_backbone_independent_op"]] * n_pts,
             s=15.0,
-            cmap="cool_r", norm=tracs_backbone_norm
+            cmap="cool_r", norm=tracs_backbone_iop_norm
+        )
+        sc4 = axes[4, traj].scatter(
+            x_traj,
+            y_traj,
+            c=[scored_predictions.iloc[traj]["tracs_backbone_linear_op"]] * n_pts,
+            s=15.0,
+            cmap="cool_r", norm=tracs_backbone_lop_norm
         )
 
-        for i in range(4):
+        for i in range(5):
             axes[i, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
 
-    fig.colorbar(sc0, ax=axes[0, :], label="Value")
-    fig.colorbar(sc1, ax=axes[1, :], label="Value")
-    fig.colorbar(sc2, ax=axes[2, :], label="Value")
-    fig.colorbar(sc3, ax=axes[3, :], label="Value")
-    axes[0, 0].set_ylabel(r"TraCS P($\tau_{k, i}$)", fontsize=15)
-    axes[1, 0].set_ylabel(r"TraCS P($\tau_k$)", fontsize=15)
-    axes[2, 0].set_ylabel(r"Backbone P($\tau_k$)", fontsize=15)
-    axes[3, 0].set_ylabel(r"TraCS Guided P($\tau_k$)", fontsize=15)
-    for i in range(6):
-        axes[3, i].set_xlabel(rf"Traj. $\tau_{i}$", fontsize=15)
+    fig.colorbar(sc0, ax=axes[0, :])
+    fig.colorbar(sc1, ax=axes[1, :])
+    fig.colorbar(sc2, ax=axes[2, :])
+    fig.colorbar(sc3, ax=axes[3, :])
+    fig.colorbar(sc4, ax=axes[4, :])
+    axes[0, 0].set_ylabel(r"Pointwise TraCS", fontsize=15)
+    axes[1, 0].set_ylabel(r"TraCS", fontsize=15)
+    axes[2, 0].set_ylabel(r"Backbone", fontsize=15)
+    axes[3, 0].set_ylabel(r"Multiplicative", fontsize=15)
+    axes[4, 0].set_ylabel(r"Additive", fontsize=15)
+
+    # Show rank (1=best) of each trajectory per scoring method as x-axis label
+    score_columns = [
+        "tracs_trajectory_score",
+        "tracs_trajectory_score",
+        "backbone_trajectory_score",
+        "tracs_backbone_independent_op",
+        "tracs_backbone_linear_op",
+    ]
+    for row_idx, score_col in enumerate(score_columns):
+        scores = scored_predictions[score_col].values
+        ranks = len(scores) - scores.argsort().argsort()
+        for col_idx in range(6):
+            axes[row_idx, col_idx].set_xlabel(str(ranks[col_idx]), fontsize=12)
 
     fig.suptitle(rf"P($\tau_\text{{gt}}$) = {gt_score:.3f} for {scenario_id}")
     plt.show()
@@ -348,8 +379,7 @@ def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenari
 
 def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):
     # Backbone, TraCS alone, Backbone & TraCS
-    KEYS = ["probability", "tracs_weight_normalized", "tracs_factor"]
-    MAPPING = {"probability": "Backbone", "tracs_weight_normalized": "TraCS", "tracs_factor": "TraCS & Backbone"}
+    methods = ["backbone_trajectory_score", "tracs_trajectory_score", "tracs_backbone_independent_op", "tracs_backbone_linear_op"]
 
     # Get ground truth trajectory for comparison
     ground_truth = pd.read_parquet(data_root / "av2_mf_focal_test_annotations.parquet")
@@ -371,8 +401,8 @@ def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):
     fde = metrics.compute_fde(predicted_tracks, gt_track)
     is_missed = metrics.compute_is_missed_prediction(predicted_tracks, gt_track)
 
-    for key in KEYS:
-        weights = scored_predictions[key].to_numpy()
+    for method in methods:
+        weights = scored_predictions[method].to_numpy()
         most_prob_index = weights.argmax()
 
         brier_ade = metrics.compute_brier_ade(predicted_tracks, gt_track, weights)
@@ -381,7 +411,7 @@ def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):
         metrics_df_row = {
             "scenario_id": scenario_id,
             "track_id": scored_predictions.iloc[0]["track_id"],
-            "key": MAPPING[key],
+            "method": method,
             "minADE6": ade.min(),
             "minFDE6": fde.min(),
             "minADE1": ade[most_prob_index],
