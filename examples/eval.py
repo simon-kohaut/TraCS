@@ -56,9 +56,9 @@ def plot_predicted_others(agent_loader, ax=None):
     agent_loader.reset()
     for timestep in range(60):
         alpha = (timestep + 1) / 60.0
-        current_state = agent_loader.features
+        current_state = agent_loader.features["vehicle"]
         agent_loader.update(1)
-        next_state = agent_loader.features
+        next_state = agent_loader.features["vehicle"]
 
         for before, after in zip(current_state, next_state):
             ax.arrow(before.x, before.y, after.x - before.x, after.y - before.y,
@@ -88,7 +88,7 @@ def tracs_rate_all(
     for timestep in range(0, num_timesteps):
         # Get next predicted locations and transitions
         agent_loader.update(1)
-        promis.star_map.uam.features = static_map.features + agent_loader.features
+        promis.star_map.uam.features = static_map.features | agent_loader.features
         agent_locations = CartesianCollection(None)
         positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep] for p in trajectories])
 
@@ -158,7 +158,7 @@ def tracs_rate_traj(promis, trajectory, speed_writer, agent_loader, static_map, 
         agent_locations.data.loc[0, "delta_north"] = transition[0, 1]
 
         # Write new data via StaR Map
-        promis.star_map.uam.features = static_map.features + agent_loader.features
+        promis.star_map.uam.features = static_map.features | agent_loader.features
         relations = promis.star_map.get_all()
         for relation in relations:
             for location_type in relations[relation]:
@@ -258,10 +258,10 @@ def tracs_rate_scenario(
     return scored_predictions, tracs_pointwise_to_score(scores[6])
 
 
-def show_comparison_study(scored_predictions, gt_score, data_root, mode, scenario_id):
+def show_comparison_study(scored_predictions, gt_score, data_root, backbone, mode, scenario_id):
     # Load also other agents (predicted) paths
     agent_loader = AV2AgentLoader(
-        prediction_path=data_root / "DeMo_submission_translated_merged.parquet",
+        prediction_path=data_root / f"{backbone}_submission.parquet",
         split_path=data_root / mode / "raw",
         scenario_id=scenario_id,
     )

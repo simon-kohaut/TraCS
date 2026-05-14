@@ -10,6 +10,7 @@
 
 # Standard Library
 import logging
+from collections import defaultdict
 from pathlib import Path
 
 # Third Party
@@ -55,7 +56,7 @@ class AV2StaticMapLoader(SpatialLoader):
         feature_description: dict[str, str | list[str]] | None = None,
     ):
         self.path = Path(path)
-        self.features = []
+        self.features = defaultdict(list, {})
 
         # Load the Argoverse 2 map API
         self._av2_map = ArgoverseStaticMap.from_json(self.path)
@@ -97,31 +98,33 @@ class AV2StaticMapLoader(SpatialLoader):
         location_type = inverted_fd["DRIVABLE_AREA"]
         for da in self._av2_map.vector_drivable_areas.values():
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in da.xyz]
-            self.features.append(CartesianPolygon(coords, location_type=location_type))
+            self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
 
     def _load_pedestrian_crossings(self, inverted_fd: dict[str, str]) -> None:
         location_type = inverted_fd["PEDESTRIAN_CROSSING"]
         for pc in self._av2_map.vector_pedestrian_crossings.values():
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in pc.polygon]
-            self.features.append(CartesianPolygon(coords, location_type=location_type))
+            self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
 
     def _load_lane_segments(self, inverted_fd: dict[str, str]) -> None:
         for ls in self._av2_map.vector_lane_segments.values():
             lane_type = inverted_fd.get(ls.lane_type.value, str(ls.lane_type.value))
 
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in ls.polygon_boundary]
-            self.features.append(CartesianPolygon(coords, location_type=lane_type))
+            self.features[lane_type].append(CartesianPolygon(coords, location_type=lane_type))
             if ls.is_intersection:
-                self.features.append(CartesianPolygon(coords, location_type=inverted_fd.get("INTERSECTION", "INTERSECTION")))
+                location_type = inverted_fd.get("INTERSECTION", "INTERSECTION")
+                self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
 
             centerline = self._av2_map.get_lane_segment_centerline(ls.id)
             center_coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in centerline]
-            self.features.append(CartesianPolyLine(center_coords, location_type=f"{lane_type}_centerline"))
+            location_type = f"{lane_type}_centerline"
+            self.features[location_type].append(CartesianPolyLine(center_coords, location_type=location_type))
 
             for lane_marking in [ls.left_lane_marking, ls.right_lane_marking]:
                 lane_marking_type = inverted_fd.get(lane_marking.mark_type.value, str(lane_marking.mark_type.value))
                 coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in lane_marking.polyline]
-                self.features.append(CartesianPolyLine(coords, location_type=lane_marking_type))
+                self.features[lane_marking_type].append(CartesianPolyLine(coords, location_type=lane_marking_type))
 
     def to_cartesian_map(self) -> CartesianMap:
         """Creates a CartesianMap from the loaded features.
@@ -139,7 +142,7 @@ class AV2AgentLoader(SpatialLoader):
         self.prediction_path = Path(prediction_path)
         self.scenario_path = Path(split_path) / scenario_id / f"scenario_{scenario_id}.parquet"
         self.scenario_id = scenario_id
-        self.features = []
+        self.features = defaultdict(list, {})
         self.focal_predictions = []
         self.agents = []
         self.current_index = 0
@@ -207,7 +210,7 @@ class AV2AgentLoader(SpatialLoader):
 
     def _build_features(self) -> None:
         """Update the features list to represent the agents at the current index."""
-        self.features = []
+        self.features = defaultdict(list, {})
         agent_states = self.agents # [self.focal_predictions] + self.agents
         for agent in agent_states:
             x_traj = agent["x_traj"]
@@ -219,7 +222,7 @@ class AV2AgentLoader(SpatialLoader):
             y = float(y_traj[index])
             # TODO: incorporate agent["probability"] for certainty in prediction? 
 
-            self.features.append(
+            self.features[agent["agent_type"]].append(
                 CartesianLocation(
                     east=x, north=y, 
                     name=agent['track_id'], 
