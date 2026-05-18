@@ -88,6 +88,7 @@ def tracs_rate_all(
     for timestep in range(0, num_timesteps):
         # Get next predicted locations and transitions
         agent_loader.update(1)
+
         promis.star_map.uam.features = static_map.features | agent_loader.features
         agent_locations = CartesianCollection(None)
         positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep] for p in trajectories])
@@ -108,7 +109,7 @@ def tracs_rate_all(
         relations = promis.star_map.get_all()
         for relation in relations:
             for location_type in relations[relation]:
-                    promis.star_map.update(relation, location_type, agent_locations, 10)
+                    promis.star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
 
         if speed_writer is not None:
             distance_traveled_km = np.linalg.norm(transitions / 1000.0, axis=1)
@@ -420,6 +421,7 @@ def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):
             "brier_minFDE6": brier_fde[fde.argmin()],
             "brier_minADE1": brier_ade[most_prob_index],
             "brier_minFDE1": brier_fde[most_prob_index],
+            "hit_rate": 1 - is_missed.mean(),
             "is_missed_prediction6": is_missed.min(),
             "is_missed_prediction1": is_missed[most_prob_index],
         }
