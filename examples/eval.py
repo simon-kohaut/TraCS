@@ -3,11 +3,13 @@ from pathlib import Path
 import time
 
 # Third Party
+import contextily as ctx
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import av2.rendering.vector as vector_plotting_utils
 from av2.datasets.motion_forecasting.eval import metrics
+from av2.geometry.utm import convert_city_coords_to_wgs84, CityName
 from av2.map.map_api import ArgoverseStaticMap
 from promis import StaRMap, ProMis
 from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection
@@ -25,6 +27,36 @@ FEATURE_DESCRIPTION = {
     "solid_line": ["DOUBLE_SOLID_YELLOW", "DOUBLE_SOLID_WHITE", "SOLID_YELLOW", "SOLID_WHITE",],
     "dashed_line": ["DASHED_WHITE", "DASHED_YELLOW", "DOUBLE_DASH_YELLOW", "DOUBLE_DASH_WHITE",],
 } 
+
+
+def add_basemap(ax, tile_img, xmin, xmax, ymin, ymax, alpha=0.5):
+    """Overlay a pre-fetched tile image onto an AV2 city-coordinate axes."""
+    ax.imshow(tile_img, extent=[xmin, xmax, ymin, ymax],
+              origin='upper', aspect='auto', alpha=alpha, zorder=0)
+
+
+def fetch_basemap_tile(city_name, xmin, xmax, ymin, ymax, zoom=18, source=None):
+    """Fetch a tile image for the given city-coordinate bounding box.
+
+    Args:
+        city_name: AV2 CityName enum value.
+        xmin/xmax/ymin/ymax: Bounding box in city coordinates (metres).
+        zoom: OSM zoom level; 18 suits driving-scale (~150 m) views.
+        source: contextily tile provider; defaults to OpenStreetMap Mapnik.
+
+    Returns:
+        RGBA image array ready for ax.imshow.
+    """
+    if source is None:
+        source = ctx.providers.OpenStreetMap.Mapnik
+
+    corners = np.array([[xmin, ymin], [xmin, ymax], [xmax, ymin], [xmax, ymax]])
+    wgs84 = convert_city_coords_to_wgs84(corners, city_name)
+    south, north = wgs84[:, 0].min(), wgs84[:, 0].max()
+    west, east = wgs84[:, 1].min(), wgs84[:, 1].max()
+
+    img, _ = ctx.bounds2img(west, south, east, north, zoom=zoom, source=source, ll=True)
+    return img
 
 
 def plot_scenario_roadlayout(av2_map, ax=None):
@@ -259,7 +291,7 @@ def tracs_rate_scenario(
     return scored_predictions, tracs_pointwise_to_score(scores[6])
 
 
-def show_comparison_study(scored_predictions, gt_score, data_root: Path, prediction_path: Path, split: str, scenario_id: str) -> None:
+def show_comparison_study(scored_predictions, gt_score, data_root: Path, prediction_path: Path, split: str, scenario_id: str, basemap=ctx.providers.Esri.WorldImagery, basemap_alpha=0.8, basemap_zoom=18):
     # Load also other agents (predicted) paths
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
@@ -348,6 +380,26 @@ def show_comparison_study(scored_predictions, gt_score, data_root: Path, predict
 
         for i in range(5):
             axes[i, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
+
+    # Add basemap tiles (fetch once; all axes share the same limits; zorder=0 keeps it behind)
+    CITY_NAME_MAP = {
+        "austin": CityName.ATX,
+        "miami": CityName.MIA,
+        "pittsburgh": CityName.PIT,
+        "washington-dc": CityName.WDC,
+        "palo-alto": CityName.PAO,
+        "dearborn": CityName.DTW,
+    }
+    scenario_df = pd.read_parquet(data_root / "av2" / split / scenario_id / f"scenario_{scenario_id}.parquet")
+    fig.canvas.draw()
+    xmin_shared, xmax_shared = axes[0, 0].get_xlim()
+    ymin_shared, ymax_shared = axes[0, 0].get_ylim()
+    tile_img = fetch_basemap_tile(CITY_NAME_MAP[scenario_df["city"].iloc[0]], xmin_shared, xmax_shared, ymin_shared, ymax_shared,
+                                  zoom="auto", source=basemap)
+    for ax_row in axes:
+        for ax in ax_row:
+            add_basemap(ax, tile_img, xmin_shared, xmax_shared, ymin_shared, ymax_shared,
+                        alpha=basemap_alpha)
 
     fig.colorbar(sc0, ax=axes[0, :])
     fig.colorbar(sc1, ax=axes[1, :])

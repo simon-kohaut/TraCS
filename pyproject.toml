@@ -30,6 +30,9 @@ dependencies = [
     "statsmodels",
     "av2",
     "gdown",
+    "contextily",
+    "nflows",
+    "torch",
 ]
 
 [project.scripts]
