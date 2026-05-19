@@ -12,6 +12,7 @@ To get the backbone outputs:
 ```shell
 cd data
 gdown --folder 1Vk8WSlfocli7gVtyPWC-pU3QbbxVCZXm
+curl -O --output-dir av2 https://s3.amazonaws.com/argoverse/datasets/av2/motion-forecasting/av2_mf_focal_test_annotations.parquet
 ```
 
 To get the scenario files:
@@ -46,9 +47,9 @@ data/
 │   │   └── ...
 │   ├── val/
 │   │   └── ...
-│   └── test/
-│       └── ...
-├── av2_mf_focal_test_annotations.parquet
+│   ├── test/
+│   │   └── ...
+│   └── av2_mf_focal_test_annotations.parquet
 └── av2_backbone_outputs/
     ├── DeMo/
     │   ├── submission.parquet

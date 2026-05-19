@@ -14,7 +14,7 @@ import os
 
 
 @click.command()
-@click.option("--gt-path", default=Path("data/av2_mf_focal_test_annotations.parquet"), help="Path to the test annotations parquet file.")
+@click.option("--gt-path", default=Path("data/av2/av2_mf_focal_test_annotations.parquet"), help="Path to the test annotations parquet file.")
 @click.option("--pred-path", default=Path("data/tracs_predictions/test"), help="Path to the predictions; either a single parquet, or a directory with one parquet per scenario.")
 @click.option("--write-to", default=None, help="Path to write the computed metrics dataframe as a parquet file.")
 @click.option("--export-path", default=None, help="Path to export the metrics dataframe as a parquet file.")

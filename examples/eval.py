@@ -231,7 +231,7 @@ def tracs_rate_scenario(
         speed_writer = None
 
     # Get ground truth trajectory and append to predictions for rating
-    ground_truth = pd.read_parquet(data_root / "av2_mf_focal_test_annotations.parquet")
+    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
     ground_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
     ground_truth_traj["x_traj"] = ground_truth_traj["gt_trajectory_x"]
     ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
@@ -272,7 +272,7 @@ def show_comparison_study(scored_predictions, gt_score, data_root: Path, predict
 
     # Load scneario
     av2_map = ArgoverseStaticMap.from_json(data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json")
-    ground_truth = pd.read_parquet(data_root / "av2_mf_focal_test_annotations.parquet")
+    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
     grount_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
     
     # Get normalized (scores for better viewing)
@@ -383,7 +383,7 @@ def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):
     methods = ["backbone_trajectory_score", "tracs_trajectory_score", "tracs_backbone_independent_op", "tracs_backbone_linear_op"]
 
     # Get ground truth trajectory for comparison
-    ground_truth = pd.read_parquet(data_root / "av2_mf_focal_test_annotations.parquet")
+    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
     gt_track = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
     gt_track = np.array([gt_track["gt_trajectory_x"], gt_track["gt_trajectory_y"]]).T
 
