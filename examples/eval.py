@@ -1,5 +1,4 @@
 # Standard Library
-import copy
 from pathlib import Path
 import time
 
@@ -190,23 +189,24 @@ def tracs_rate_scenario(
         logic: str, 
         prediction_path: Path,
         data_root: Path,
-        mode: str,
+        split: str,
         scenario_length: int = 60,
         write_speed = True
-    ) -> None:
+    ):
     static_map = AV2StaticMapLoader(
-        path=data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json",
+        path=data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json",
         feature_description=FEATURE_DESCRIPTION,
     ).to_cartesian_map()
 
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
-        split_path=data_root / mode / "raw",
+        split_path=data_root / "av2" / split,
         scenario_id=scenario_id,
     )
 
     agent_loader.reset()
-    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
+    # Initialize the variance with the minADE1 of DeMo
+    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
 
     # Initialize StaR Map and ProMis
     raster = CartesianRasterBand(
@@ -259,11 +259,11 @@ def tracs_rate_scenario(
     return scored_predictions, tracs_pointwise_to_score(scores[6])
 
 
-def show_comparison_study(scored_predictions, gt_score, data_root, backbone, mode, scenario_id):
+def show_comparison_study(scored_predictions, gt_score, data_root: Path, prediction_path: Path, split: str, scenario_id: str) -> None:
     # Load also other agents (predicted) paths
     agent_loader = AV2AgentLoader(
-        prediction_path=data_root / f"{backbone}_submission.parquet",
-        split_path=data_root / mode / "raw",
+        prediction_path=prediction_path,
+        split_path=data_root / "av2" / split,
         scenario_id=scenario_id,
     )
 
@@ -271,7 +271,7 @@ def show_comparison_study(scored_predictions, gt_score, data_root, backbone, mod
     fig, axes = plt.subplots(nrows=5, ncols=6, figsize=(15, 10), layout='constrained', sharex=True, sharey=True)
 
     # Load scneario
-    av2_map = ArgoverseStaticMap.from_json(data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json")
+    av2_map = ArgoverseStaticMap.from_json(data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json")
     ground_truth = pd.read_parquet(data_root / "av2_mf_focal_test_annotations.parquet")
     grount_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
     

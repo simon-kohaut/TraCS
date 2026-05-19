@@ -111,24 +111,24 @@ PREAMBLE_DYNAMIC = """
 """
 
 def tracs_pipeline(
-        scenario_id: str,
-        logic: str, 
-        feature_description: dict[str, str | list[str]],
-        prediction_path: Path,
-        data_root: Path,
-        mode: str,
-        write: bool = True,
-    ) -> None:
+    scenario_id: str,
+    logic: str, 
+    feature_description: dict[str, str | list[str]],
+    prediction_path: Path,
+    data_root: Path,
+    split: str,
+    write: bool = True,
+) -> None:
 
     static_map = AV2StaticMapLoader(
-        path=data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json",
+        path=data_root / split / scenario_id / f"log_map_archive_{scenario_id}.json",
         feature_description=feature_description,
     ).to_cartesian_map()
     static_map.apply_covariance(0.2 * np.eye(2))
 
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
-        split_path=data_root / mode / "raw",
+        split_path=data_root / split,
         scenario_id=scenario_id,
     )
 
@@ -228,29 +228,29 @@ def tracs_pipeline(
         / np.sum(scored_predictions["probability"] * scored_predictions["tracs_weight"] ) # or use only / np.sum() to normalize?
 
     if write:
-        scored_predictions.to_parquet(data_root / "tracs_predictions" / mode / f"{scenario_id}.parquet")
+        scored_predictions.to_parquet(data_root / "tracs_predictions" / split / f"{scenario_id}.parquet")
         return None
     else: 
         return scored_predictions
 
 
 def _cache_star_maps(
-        scenario_id: str,
-        feature_description: dict[str, str | list[str]],
-        prediction_path: Path,
-        data_root: Path,
-        mode: str,
-    ) -> None:
+    scenario_id: str,
+    feature_description: dict[str, str | list[str]],
+    prediction_path: Path,
+    data_root: Path,
+    mode: str,
+) -> None:
 
     static_map = AV2StaticMapLoader(
-        path=data_root / mode / "raw" / scenario_id / f"log_map_archive_{scenario_id}.json",
+        path=data_root / mode / scenario_id / f"log_map_archive_{scenario_id}.json",
         feature_description=feature_description,
     ).to_cartesian_map()
     static_map.apply_covariance(0.0025 * np.eye(2))
 
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
-        split_path=data_root / mode / "raw",
+        split_path=data_root / mode,
         scenario_id=scenario_id,
     )
 

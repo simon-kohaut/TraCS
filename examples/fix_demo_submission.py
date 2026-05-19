@@ -32,9 +32,9 @@ def fix_demo_submission(submission_path, scenario_directory):
                         })])
                         break
 
-    fixed_df.to_parquet("/path/to/DeMo_submissions_all_translated.parquet")
+    fixed_df.to_parquet("data/av2_backbone_outputs/DeMo/submission.parquet")
 
 fix_demo_submission(
-    submission_path=Path("/path/to/DeMo_submission_all.parquet"),
-    scenario_directory=Path("/path/to/test/raw")
+    submission_path=Path("data/av2_backbone_outputs/DeMo/submission_raw_model_out.parquet"),
+    scenario_directory=Path("data/av2/test")
 )

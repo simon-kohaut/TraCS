@@ -48,6 +48,7 @@ data/
 │   │   └── ...
 │   └── test/
 │       └── ...
+├── av2_mf_focal_test_annotations.parquet
 └── av2_backbone_outputs/
     ├── DeMo/
     │   ├── submission.parquet

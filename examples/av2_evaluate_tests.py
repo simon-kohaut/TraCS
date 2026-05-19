@@ -12,12 +12,10 @@ from pathlib import Path
 import click
 import os
 
-test_anno_path = Path("dataset/av2_mf_focal_test_annotations.parquet")
-pred_path = Path("dataset/tracs_predictions/test")
 
 @click.command()
-@click.option("--gt-path", default=test_anno_path, help="Path to the test annotations parquet file.")
-@click.option("--pred-path", default=pred_path, help="Path to the predictions; either a single parquet, or a directory with one parquet per scenario.")
+@click.option("--gt-path", default=Path("data/av2_mf_focal_test_annotations.parquet"), help="Path to the test annotations parquet file.")
+@click.option("--pred-path", default=Path("data/tracs_predictions/test"), help="Path to the predictions; either a single parquet, or a directory with one parquet per scenario.")
 @click.option("--write-to", default=None, help="Path to write the computed metrics dataframe as a parquet file.")
 @click.option("--export-path", default=None, help="Path to export the metrics dataframe as a parquet file.")
 @click.option("--mode", default="pipeline", type=click.Choice(["submission", "pipeline"]), help="Evaluate a single submission parquet, or a directory produced by the TraCS pipeline.")
@@ -25,10 +23,13 @@ def main(gt_path, pred_path, write_to, export_path, mode):
 
     try:
         gt_path = Path(gt_path)
+        assert gt_path.exists(), f"Ground truth path {gt_path} does not exist."
+
         pred_path = Path(pred_path)
+        assert pred_path.exists(), f"Prediction path {pred_path} does not exist."
     except Exception as e:
         print(f"Error occurred while parsing paths: {e}")
-        return
+        exit(1)
 
     gt_df = pd.read_parquet(gt_path)
     gt_df_grouped = gt_df.groupby(["scenario_id", "track_id"])
