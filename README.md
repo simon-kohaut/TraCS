@@ -6,13 +6,54 @@
 pip install -e .
 ```
 
-To get the merged data:
+TODO for submission: redact the Google drive link, they cannot easily be made anonymous
+
+To get the backbone outputs:
 ```shell
-gdown 1jf3ecRQ20IVDdH3GkYqKVkpsz3D5lC5G
-gdown 1P8VzAm8S80P6cmVXwXS_uHLX17aIK2uS
+cd data
+gdown --folder 1Vk8WSlfocli7gVtyPWC-pU3QbbxVCZXm
 ```
 
-Move to `dataset/`.
+To get the scenario files:
+```shell
+# Assuming you are still in data/
+mkdir av2
+cd av2
+
+curl -LO "https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/train.tar"
+curl -LO "https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/val.tar"
+curl -LO "https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/test.tar"
+
+# Unpack the scenario files:
+tar -xf train.tar
+tar -xf val.tar
+tar -xf test.tar
+
+# Cleanup the tar files:
+rm train.tar val.tar test.tar
+cd ..
+```
+
+The final directory structure should look like this:
+
+```
+data/
+├── av2/
+│   ├── train/
+│   │   ├── 0000b0f9-99f9-4a1f-a231-5be9e4c523f7/
+│   │   │   ├── log_map_archive_0000b0f9-99f9-4a1f-a231-5be9e4c523f7.json
+│   │   │   └── scenario_0000b0f9-99f9-4a1f-a231-5be9e4c523f7.parquet
+│   │   └── ...
+│   ├── val/
+│   │   └── ...
+│   └── test/
+│       └── ...
+└── av2_backbone_outputs/
+    ├── DeMo/
+    │   ├── submission.parquet
+    │   └── metrics.parquet
+    └── ...
+```
 
 ## Usage
 

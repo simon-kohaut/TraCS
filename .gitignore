@@ -209,3 +209,6 @@ __marimo__/
 #################### Custom Ignore Rules ####################
 
 /output*
+/.devcontainer/devcontainer-lock.json
+/.vscode/
+/.claude/

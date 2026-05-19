@@ -29,6 +29,7 @@ dependencies = [
     "seaborn",
     "statsmodels",
     "av2",
+    "gdown",
 ]
 
 [project.scripts]

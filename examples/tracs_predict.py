@@ -295,7 +295,7 @@ def _cache_star_maps(
     #     scaler=5,
     # )
 
-    star_map.save(data_root / "star_maps_all" / f"{scenario_id}.pkl")
+    star_map.save(data_root / "star_maps" / f"{scenario_id}.pkl")
 
 
 def main(args):
