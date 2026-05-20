@@ -226,7 +226,7 @@ def tracs_rate_scenario(
         logic=logic,
     )
 
-    augmented_logic = logic + "\n# Appended automatically:\n" + agent_loader.resin_facts
+    augmented_logic = logic + "\n# Appended automatically:\n" + agent_loader.resin_facts_and_sources
 
     promis = ProMis(star_map, augmented_logic, 7, verbose=False)
     promis.initialize(evaluation_points=raster, interpolation_method="nearest")
