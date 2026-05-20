@@ -1,21 +1,33 @@
 # Standard Library
+from math import prod
 from pathlib import Path
+from typing import Any
 import time
 
 # Third Party
 import contextily as ctx
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import pandas as pd
 import av2.rendering.vector as vector_plotting_utils
 from av2.datasets.motion_forecasting.eval import metrics
-from av2.geometry.utm import convert_city_coords_to_wgs84, CityName
+from av2.geometry.utm import convert_city_coords_to_wgs84, CityName, CITY_ORIGIN_LATLONG_DICT
 from av2.map.map_api import ArgoverseStaticMap
 from promis import StaRMap, ProMis
-from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection
+from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection, PolarLocation
 
 # TraCS
 from tracs.av2_loader import AV2StaticMapLoader, AV2AgentLoader
+
+CITY_NAME_MAP = {
+    "austin": CityName.ATX,
+    "miami": CityName.MIA,
+    "pittsburgh": CityName.PIT,
+    "washington-dc": CityName.WDC,
+    "palo-alto": CityName.PAO,
+    "dearborn": CityName.DTW,
+}
 
 FEATURE_DESCRIPTION = {
     "crosswalk": "PEDESTRIAN_CROSSING",
@@ -27,6 +39,11 @@ FEATURE_DESCRIPTION = {
     "solid_line": ["DOUBLE_SOLID_YELLOW", "DOUBLE_SOLID_WHITE", "SOLID_YELLOW", "SOLID_WHITE",],
     "dashed_line": ["DASHED_WHITE", "DASHED_YELLOW", "DOUBLE_DASH_YELLOW", "DOUBLE_DASH_WHITE",],
 } 
+
+
+def city_to_origin(city_name: str) -> PolarLocation:
+    lat, lon = CITY_ORIGIN_LATLONG_DICT[CITY_NAME_MAP[city_name]]
+    return PolarLocation(longitude=lon, latitude=lat)
 
 
 def add_basemap(ax, tile_img, xmin, xmax, ymin, ymax, alpha=0.5):
@@ -140,7 +157,7 @@ def tracs_rate_all(
         relations = promis.star_map.get_all()
         for relation in relations:
             for location_type in relations[relation]:
-                    promis.star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
+                promis.star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
 
         if speed_writer is not None:
             distance_traveled_km = np.linalg.norm(transitions / 1000.0, axis=1)
@@ -382,14 +399,6 @@ def show_comparison_study(scored_predictions, gt_score, data_root: Path, predict
             axes[i, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
 
     # Add basemap tiles (fetch once; all axes share the same limits; zorder=0 keeps it behind)
-    CITY_NAME_MAP = {
-        "austin": CityName.ATX,
-        "miami": CityName.MIA,
-        "pittsburgh": CityName.PIT,
-        "washington-dc": CityName.WDC,
-        "palo-alto": CityName.PAO,
-        "dearborn": CityName.DTW,
-    }
     scenario_df = pd.read_parquet(data_root / "av2" / split / scenario_id / f"scenario_{scenario_id}.parquet")
     fig.canvas.draw()
     xmin_shared, xmax_shared = axes[0, 0].get_xlim()
@@ -428,6 +437,140 @@ def show_comparison_study(scored_predictions, gt_score, data_root: Path, predict
 
     fig.suptitle(rf"P($\tau_\text{{gt}}$) = {gt_score:.3f} for {scenario_id}")
     plt.show()
+
+
+def show_all_relations(
+    scenario_id: str,
+    logic: str,
+    prediction_path: Path,
+    data_root: Path,
+    split: str,
+    timestep: int = 0,
+    scenario_length: int = 60,
+    value_index: int = 0,
+    zoom: int = 12,
+    alpha: float = 0.5,
+    plot_basemap: bool = False,
+    omit_relations: set[str] = {"depth"},
+):
+    static_map_loader = AV2StaticMapLoader(
+        path=data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json",
+        feature_description=FEATURE_DESCRIPTION,
+    )
+    static_map = static_map_loader.to_cartesian_map()
+
+    agent_loader = AV2AgentLoader(
+        prediction_path=prediction_path,
+        split_path=data_root / "av2" / split,
+        scenario_id=scenario_id,
+    )
+    agent_loader.reset()
+    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
+
+    focal_agent = np.dstack([
+        (pred["x_traj"], pred["y_traj"])
+        for pred in agent_loader.focal_predictions
+    ])
+    mean_x, mean_y = focal_agent.mean(axis=(-1, -2))
+
+    xmin, xmax = focal_agent[0, ...].min() - 20, focal_agent[0, ...].max() + 20
+    ymin, ymax = focal_agent[1, ...].min() - 20, focal_agent[1, ...].max() + 20
+
+    scenario_df = pd.read_parquet(data_root / "av2" / split / scenario_id / f"scenario_{scenario_id}.parquet")
+    origin = city_to_origin(scenario_df["city"].iloc[0])
+
+    resolution = (100, 100)
+    raster = CartesianRasterBand(origin=origin, resolution=resolution, width=100, height=100)
+    raster.data["east"] += mean_x
+    raster.data["north"] += mean_y
+    star_map = StaRMap(CartesianMap(origin, features=static_map.features | agent_loader.features))
+    star_map.initialize(evaluation_points=raster, number_of_random_maps=25, logic=logic)
+
+    all_relations = star_map.get_all()
+    all_location_types = sorted(star_map.location_types)
+    for omit in omit_relations:
+        if omit in all_relations:
+            del all_relations[omit]
+
+    # Get ground truth trajectory and append to predictions for rating
+    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
+    ground_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
+    ground_truth_traj["x_traj"] = ground_truth_traj["gt_trajectory_x"]
+    ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
+    trajectories = agent_loader.focal_predictions + [ground_truth_traj]
+
+    agent_locations = CartesianCollection(None)
+    positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep] for p in trajectories])
+
+    # At the end of predicted trajectory we repeat transition velocity
+    timestep = min(timestep, scenario_length - 1)
+    next_positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep+1] for p in trajectories])
+    transitions=np.hstack((next_positions - positions, np.zeros((len(trajectories), 1))))
+
+    # Update at trajectory location and transition
+    agent_locations.append_with_default(
+        coordinates=positions,
+        value=0.0,
+        transitions=transitions,
+    )
+
+    # TODO make this work:
+    # promis = ProMis(star_map, logic, prod(resolution))
+    # promis.initialize(evaluation_points=raster, interpolation_method="nearest")
+
+    # Write new data via StaR Map
+    # for relation in star_map.relation_and_location_types:
+    #     if relation in omit_relations:
+    #         continue
+    #     for location_type in star_map.relation_and_location_types[relation]:
+    #         star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
+
+    n_rows = len(all_relations)
+    n_cols = len(all_location_types)
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(2 * n_cols, 2 * n_rows),
+        sharex=True, sharey=True,
+        squeeze=False,
+    )
+
+    row_mappables: dict[int, Any] = {}
+
+    for i, (relation_type, location_types) in enumerate(all_relations.items()):
+        for j, location_type in enumerate(all_location_types):
+            ax = axes[i, j]
+
+            plot_scenario_roadlayout(static_map_loader.av2_map, ax=ax)
+            plot_predicted_others(agent_loader, ax=ax)
+            ax.set_aspect(1)
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(ymin, ymax)
+
+            if j == 0:
+                ax.set_ylabel(relation_type)
+            if i == 0:
+                ax.set_title(location_type)
+
+            if location_type in location_types:
+                relation = star_map.get(relation_type, location_type)
+                m = relation.parameters.scatter(
+                    ax=ax, alpha=alpha, value_index=value_index,
+                    zoom=zoom, plot_basemap=plot_basemap,
+                )
+                if m is None and ax.collections:
+                    m = ax.collections[-1]
+                if i not in row_mappables and m is not None:
+                    row_mappables[i] = m
+            else:
+                ax.set_xticks([])
+                ax.set_yticks([])
+                sns.despine(ax=ax, left=True, bottom=True, right=True, top=True)
+
+    for i, m in row_mappables.items():
+        fig.colorbar(m, ax=axes[i, :].tolist(), location="right")
+
+    plt.show()
+    plt.clf()
 
 
 def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):

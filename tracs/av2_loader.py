@@ -59,7 +59,7 @@ class AV2StaticMapLoader(SpatialLoader):
         self.features = defaultdict(list, {})
 
         # Load the Argoverse 2 map API
-        self._av2_map = ArgoverseStaticMap.from_json(self.path)
+        self.av2_map = ArgoverseStaticMap.from_json(self.path)
         self.origin = None
         if feature_description is not None:
             self.load(feature_description)
@@ -96,18 +96,18 @@ class AV2StaticMapLoader(SpatialLoader):
 
     def _load_drivable_areas(self, inverted_fd: dict[str, str]) -> None:
         location_type = inverted_fd["DRIVABLE_AREA"]
-        for da in self._av2_map.vector_drivable_areas.values():
+        for da in self.av2_map.vector_drivable_areas.values():
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in da.xyz]
             self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
 
     def _load_pedestrian_crossings(self, inverted_fd: dict[str, str]) -> None:
         location_type = inverted_fd["PEDESTRIAN_CROSSING"]
-        for pc in self._av2_map.vector_pedestrian_crossings.values():
+        for pc in self.av2_map.vector_pedestrian_crossings.values():
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in pc.polygon]
             self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
 
     def _load_lane_segments(self, inverted_fd: dict[str, str]) -> None:
-        for ls in self._av2_map.vector_lane_segments.values():
+        for ls in self.av2_map.vector_lane_segments.values():
             lane_type = inverted_fd.get(ls.lane_type.value, str(ls.lane_type.value))
 
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in ls.polygon_boundary]
@@ -116,7 +116,7 @@ class AV2StaticMapLoader(SpatialLoader):
                 location_type = inverted_fd.get("INTERSECTION", "INTERSECTION")
                 self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
 
-            centerline = self._av2_map.get_lane_segment_centerline(ls.id)
+            centerline = self.av2_map.get_lane_segment_centerline(ls.id)
             center_coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in centerline]
             location_type = f"{lane_type}_centerline"
             self.features[location_type].append(CartesianPolyLine(center_coords, location_type=location_type))

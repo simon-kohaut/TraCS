@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 sudo apt-get update && sudo apt-get install -y gringo && export CLINGO_LIBRARY_PATH=/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH) && pip install -e .
 
