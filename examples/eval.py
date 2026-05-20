@@ -178,61 +178,6 @@ def tracs_rate_all(
     return tracs_scores
 
 
-def tracs_rate_traj(promis, trajectory, speed_writer, agent_loader, static_map, scenario_length: int = 60, last_score = 0):
-    # Get trajectory xs and ys
-    x_traj = trajectory["x_traj"]
-    y_traj = trajectory["y_traj"]
-
-    num_timesteps = len(x_traj)
-    agent_locations = CartesianCollection(None)
-    agent_locations.append_with_default(np.zeros((1, 2)), 0.0)
-    tracs_scores = []
-    agent_loader.reset()
-    for timestep in range(0, num_timesteps):
-        # Update time
-        agent_loader.update(1)
-
-        # Get next predicted locations and transitions
-        position = np.array([[x_traj[timestep], y_traj[timestep]]])
-
-        # At the end of predicted trajectory we repeat transition velocity
-        if timestep < scenario_length - 1:
-            next_position = np.array([x_traj[timestep + 1], y_traj[timestep + 1]])
-            transition = np.hstack([next_position - position, np.zeros((1, 1))])
-        
-        # Update at trajectory location and transition
-        agent_locations.data.loc[0, "east"] = position[0, 0]
-        agent_locations.data.loc[0, "north"] = position[0, 1]
-        agent_locations.data.loc[0, "delta_east"] = transition[0, 0]
-        agent_locations.data.loc[0, "delta_north"] = transition[0, 1]
-
-        # Write new data via StaR Map
-        promis.star_map.uam.features = static_map.features | agent_loader.features
-        relations = promis.star_map.get_all()
-        for relation in relations:
-            for location_type in relations[relation]:
-                    promis.star_map.update(relation, location_type, agent_locations, 10, "nearest")
-
-        if speed_writer is not None:
-            distance_traveled_km = np.linalg.norm(transition[0, :2] / 1000.0)
-            time_in_hrs = 0.1 / 60 / 60
-            speed = distance_traveled_km / time_in_hrs
-            speed_writer.write(np.array([speed]), time.monotonic())
-
-        # Get new inference results and append as tracs scores
-        time.sleep(0.01)  # Ensures that on slow systems or large problems all data has already transferred
-        updated_landscape = promis.update()
-        if updated_landscape is not None:
-            score = updated_landscape.values().item()
-            last_score = score
-        else:
-            score = last_score
-        
-        tracs_scores.append(score)
-
-    return np.array(tracs_scores)
-
-
 def tracs_rate_scenario(
         scenario_id: str,
         logic: str, 
