@@ -253,15 +253,19 @@ class AV2AgentLoader(SpatialLoader):
             y = float(y_traj[index])
             # TODO: incorporate agent["probability"] for certainty in prediction (dropped in load() for simplicity for now)
 
-            location = CartesianLocation(
-                east=x, north=y, 
+            self.features[agent["agent_type"]].append(CartesianLocation(
+                east=x, north=y,
                 name=agent['track_id'], 
                 location_type=agent["agent_type"], 
                 covariance=agent["covariance"] * np.eye(2),
-            )
-            self.features[agent["agent_type"]].append(location)
+            ))
             if self.include_individual_agents:
-                self.features[f"agent_{agent['track_id']}"].append(location)
+                self.features[f"agent_{agent['track_id']}"].append(CartesianLocation(
+                    east=x, north=y,
+                    name=agent['track_id'], 
+                    location_type=f"agent_{agent['track_id']}",
+                    covariance=agent["covariance"] * np.eye(2),
+                ))
 
     def to_cartesian_map(self) -> CartesianMap:
         """Creates a CartesianMap from the loaded agent features.

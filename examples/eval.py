@@ -130,7 +130,7 @@ def _tracs_rate_all(
 ) -> None:
     agent_loader.reset()
     # Initialize the variance with the minADE1 of DeMo
-    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
+    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
 
     num_timesteps = len(trajectories[0]["x_traj"])
     tracs_scores = np.zeros((len(trajectories), num_timesteps))
@@ -147,7 +147,7 @@ def _tracs_rate_all(
         if timestep < scenario_length - 1:
             next_positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep+1] for p in trajectories])
             transitions=np.hstack((next_positions - positions, np.zeros((len(trajectories), 1))))
-        
+
         # Update at trajectory location and transition
         agent_locations.append_with_default(
             coordinates=positions,
@@ -219,15 +219,16 @@ def tracs_rate_scenario(
         width=1,
         height=1,
     )
+
+    augmented_logic = logic + "\n# Appended automatically:\n" + agent_loader.resin_facts_and_sources
+    # print("Augmented logic for ProMis:\n", augmented_logic)
+
     star_map = StaRMap(CartesianMap(None))
     star_map.initialize(
         evaluation_points=raster,
         number_of_random_maps=25,
-        logic=logic,
+        logic=augmented_logic,
     )
-
-    augmented_logic = logic + "\n# Appended automatically:\n" + agent_loader.resin_facts_and_sources
-
     promis = ProMis(star_map, augmented_logic, 7, verbose=False)
     promis.initialize(evaluation_points=raster, interpolation_method="nearest")
 
