@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 import multiprocessing
 from functools import partial
+from typing import Callable
 from tqdm import tqdm
 import time
 import os
@@ -110,6 +111,7 @@ PREAMBLE_DYNAMIC = """
     speed <- source("/sensors/speed", Number).
 """
 
+
 def tracs_pipeline(
     scenario_id: str,
     logic: str, 
@@ -181,7 +183,7 @@ def tracs_pipeline(
 
     # TODO add gt evaluation here already?
 
-    interpolator: callable
+    interpolator: Callable
     for timestep in range(0, num_timesteps-1): 
         # score first self.update_frequency positions on one star map 
         landscape = promis.update()
@@ -234,70 +236,6 @@ def tracs_pipeline(
         return scored_predictions
 
 
-def _cache_star_maps(
-    scenario_id: str,
-    feature_description: dict[str, str | list[str]],
-    prediction_path: Path,
-    data_root: Path,
-    mode: str,
-) -> None:
-
-    static_map = AV2StaticMapLoader(
-        path=data_root / mode / scenario_id / f"log_map_archive_{scenario_id}.json",
-        feature_description=feature_description,
-    ).to_cartesian_map()
-    static_map.apply_covariance(0.0025 * np.eye(2))
-
-    agent_loader = AV2AgentLoader(
-        prediction_path=prediction_path,
-        split_path=data_root / mode,
-        scenario_id=scenario_id,
-    )
-
-    agent_loader.reset()
-    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
-
-    uam = CartesianMap(None, static_map.features + agent_loader.features)
-    star_map = StaRMap(uam)
-
-    x_pred_flat = np.array([f_pred["x_traj"] for f_pred in agent_loader.focal_predictions]).ravel()
-    y_pred_flat = np.array([f_pred["y_traj"] for f_pred in agent_loader.focal_predictions]).ravel()
-    xmin, xmax = x_pred_flat.min(), x_pred_flat.max()
-    ymin, ymax = y_pred_flat.min(), y_pred_flat.max()
-
-    raster = CartesianRasterBand(
-        origin=None,
-        resolution= (X_RES, Y_RES), #(10, 10),
-        width=xmax - xmin + BUFFER_SPACE,
-        height=ymax - ymin + BUFFER_SPACE,
-    )   
-    raster.data["east"] += (xmin + xmax) / 2
-    raster.data["north"] += (ymin + ymax) / 2
-
-    star_map.initialize(
-        evaluation_points=raster,
-        number_of_random_maps=NUM_MAPS,
-        logic=PREAMBLE_STATIC,
-    )
-
-    # def candidate_sampler():
-    #     collection = CartesianCollection.make_latin_hypercube(None, raster.width, raster.height, number_of_samples=100, include_corners=True)
-    #     collection.data["east"] += (xmin + xmax) / 2
-    #     collection.data["north"] += (ymin + ymax) / 2
-    #     return collection
-
-    # star_map.adaptive_sample(
-    #     candidate_sampler=candidate_sampler,
-    #     number_of_random_maps=20,
-    #     number_of_iterations=10,
-    #     number_of_improvement_points=25,
-    #     acquisition_method = "entropy",
-    #     scaler=5,
-    # )
-
-    star_map.save(data_root / "star_maps" / f"{scenario_id}.pkl")
-
-
 def main(args):
     data_root = Path(args.data_root)
 
@@ -307,53 +245,30 @@ def main(args):
         mode_dir = data_root / mode / "raw"
         scenario_files = os.listdir(mode_dir)
 
-        if args.cache: 
-            os.makedirs(data_root / "star_maps" / mode, exist_ok=True)
+        pipeline_func = partial(
+            tracs_pipeline,
+            logic=tracs_logic,
+            feature_description=FEATURE_DESCRIPTION,
+            prediction_path=args.initial_predictions,
+            # scenario_id remains as a variable argument 
+            data_root=data_root,
+            mode=mode,
+            write=True,
+        )
 
-            cache_star = partial(
-                _cache_star_maps,
-                # scenario_id remains as a variable argument 
-                feature_description=FEATURE_DESCRIPTION,
-                prediction_path=args.initial_predictions,
-                data_root=data_root,
-                mode=mode,
-            )
-
-            if args.parallel:
-                with multiprocessing.Pool(N_WORKERS) as p:
-                    for _ in tqdm(p.imap(cache_star, scenario_files), total=len(scenario_files)):
-                        pass
-            else:
-                for file in tqdm(scenario_files):
-                    print(file)
-                    cache_star(file)
-
-        if not args.cache: 
-            pipeline_func = partial(
-                tracs_pipeline,
-                logic=tracs_logic,
-                feature_description=FEATURE_DESCRIPTION,
-                prediction_path=args.initial_predictions,
-                # scenario_id remains as a variable argument 
-                data_root=data_root,
-                mode=mode,
-                write=True,
-            )
-
-            if args.parallel:
-                with multiprocessing.Pool(N_WORKERS) as p:
-                    for _ in tqdm(p.imap(pipeline_func, scenario_files), total=len(scenario_files)):
-                        pass
-            else:
-                for file in tqdm(scenario_files):
-                    pipeline_func(file)
+        if args.parallel:
+            with multiprocessing.Pool(N_WORKERS) as p:
+                for _ in tqdm(p.imap(pipeline_func, scenario_files), total=len(scenario_files)):
+                    pass
+        else:
+            for file in tqdm(scenario_files):
+                pipeline_func(file)
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--data_root", "-d", type=str, default='/path/to/data_root')
     parser.add_argument("--parallel", "-p", action="store_true")
-    parser.add_argument("--cache", "-c", action="store_true")
     parser.add_argument("--initial_predictions", "-i", type=str, default=None)
 
     args = parser.parse_args()
