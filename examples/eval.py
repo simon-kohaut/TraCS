@@ -1,5 +1,4 @@
 # Standard Library
-from math import prod
 from pathlib import Path
 from typing import Any
 import time
@@ -197,8 +196,6 @@ def tracs_rate_scenario(
         split_path=data_root / "av2" / split,
         scenario_id=scenario_id,
     )
-
-    agent_loader.reset()
     # Initialize the variance with the minADE1 of DeMo
     agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
 
@@ -253,7 +250,7 @@ def tracs_rate_scenario(
     return scored_predictions, tracs_pointwise_to_score(scores[6])
 
 
-def show_comparison_study(scored_predictions, gt_score, data_root: Path, prediction_path: Path, split: str, scenario_id: str, basemap=ctx.providers.Esri.WorldImagery, basemap_alpha=0.8, basemap_zoom=18):
+def show_comparison_study(scored_predictions, gt_score, data_root: Path, prediction_path: Path, split: str, scenario_id: str, basemap=ctx.providers.Esri.WorldImagery, basemap_alpha=0.8):
     # Load also other agents (predicted) paths
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
@@ -368,7 +365,6 @@ def show_comparison_study(scored_predictions, gt_score, data_root: Path, predict
 
     # Show rank (1=best) of each trajectory per scoring method as x-axis label
     score_columns = [
-        "tracs_trajectory_score",
         "tracs_trajectory_score",
         "backbone_trajectory_score",
         "tracs_backbone_independent_op",
