@@ -120,18 +120,21 @@ def tracs_pointwise_to_score(pointwise_scores):
 
 
 def tracs_rate_all(
-        promis, 
-        trajectories,
-        speed_writer,
-        agent_loader, 
-        static_map,
-        scenario_length = 60,
-    ) -> None:
+    promis, 
+    trajectories,
+    agent_loader, 
+    static_map,
+    speed_writer=None,
+    acceleration_writer=None,
+    scenario_length = 60,
+) -> None:
     agent_loader.reset()
+    # Initialize the variance with the minADE1 of DeMo
     agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
 
     num_timesteps = len(trajectories[0]["x_traj"])
     tracs_scores = np.zeros((len(trajectories), num_timesteps))
+    last_speeds = None
     for timestep in range(0, num_timesteps):
         # Get next predicted locations and transitions
         agent_loader.update(1)
@@ -158,11 +161,18 @@ def tracs_rate_all(
             for location_type in relations[relation]:
                 promis.star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
 
+        distance_traveled_km = np.linalg.norm(transitions / 1000.0, axis=1)
+        time_in_hrs = 0.1 / 60 / 60  # Argoverse 2 is sampled at 10 Hz
+        speed = distance_traveled_km / time_in_hrs  # km/h
+        if last_speeds is None:
+            last_speeds = speed  # Assume initial acceleration is zero
+        acceleration = (speed - last_speeds) / time_in_hrs
+        last_speeds = speed
+
         if speed_writer is not None:
-            distance_traveled_km = np.linalg.norm(transitions / 1000.0, axis=1)
-            time_in_hrs = 0.1 / 60 / 60
-            speed = distance_traveled_km / time_in_hrs
             speed_writer.write(speed, time.monotonic())
+        if acceleration_writer is not None:
+            acceleration_writer.write(acceleration, time.monotonic())
 
         # Get new inference results and append as tracs scores
         time.sleep(0.01)  # Ensures that all data has already transferred
@@ -178,26 +188,28 @@ def tracs_rate_all(
 
 
 def tracs_rate_scenario(
-        scenario_id: str,
-        logic: str, 
-        prediction_path: Path,
-        data_root: Path,
-        split: str,
-        scenario_length: int = 60,
-        write_speed = True
-    ):
+    scenario_id: str,
+    logic: str, 
+    prediction_path: Path,
+    data_root: Path,
+    split: str,
+    scenario_length: int = 60,
+):
+    """
+
+    Notes:
+        Speed and acceleration are written if requested as, e.g., `source("/sensors/speed", Number)`.
+    """
+    # Argoverse 2 scenario loading
     static_map = AV2StaticMapLoader(
         path=data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json",
         feature_description=FEATURE_DESCRIPTION,
     ).to_cartesian_map()
-
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
         split_path=data_root / "av2" / split,
         scenario_id=scenario_id,
     )
-    # Initialize the variance with the minADE1 of DeMo
-    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
 
     # Initialize StaR Map and ProMis
     raster = CartesianRasterBand(
@@ -206,7 +218,6 @@ def tracs_rate_scenario(
         width=1,
         height=1,
     )
-
     star_map = StaRMap(CartesianMap(None))
     star_map.initialize(
         evaluation_points=raster,
@@ -216,10 +227,15 @@ def tracs_rate_scenario(
 
     promis = ProMis(star_map, logic, 7)
     promis.initialize(evaluation_points=raster, interpolation_method="nearest")
-    if write_speed:
+
+    if 'source("/sensors/speed"' in logic:
         speed_writer = promis._resin.make_writer_for("speed")
     else:
         speed_writer = None
+    if 'source("/sensors/acceleration"' in logic:
+        acceleration_writer = promis._resin.make_writer_for("acceleration")
+    else:
+        acceleration_writer = None
 
     # Get ground truth trajectory and append to predictions for rating
     ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
@@ -229,7 +245,9 @@ def tracs_rate_scenario(
     trajectories = agent_loader.focal_predictions + [ground_truth_traj]
 
     # Score of TraCS alone
-    scores = tracs_rate_all(promis, trajectories, speed_writer, agent_loader, static_map, scenario_length)
+    scores = tracs_rate_all(promis, trajectories, agent_loader, static_map,
+                            speed_writer=speed_writer, acceleration_writer=acceleration_writer,
+                            scenario_length=scenario_length)
     for i, prediction in enumerate(agent_loader.focal_predictions):
         prediction["tracs_pointwise_scores"] = scores[i]
         prediction["tracs_trajectory_score"] = tracs_pointwise_to_score(scores[i])
