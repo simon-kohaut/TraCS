@@ -9,7 +9,7 @@
 #
 
 # Standard Library
-import logging
+from functools import cached_property
 from collections import defaultdict
 from pathlib import Path
 
@@ -22,7 +22,6 @@ import numpy as np
 from promis.geo import CartesianLocation, CartesianPolygon, CartesianPolyLine, CartesianMap
 from promis.loaders.spatial_loader import SpatialLoader
 
-log = logging.getLogger(__name__)
 
 class AV2StaticMapLoader(SpatialLoader):
     """A loader for spatial data from the Argoverse 2 (AV2) dataset.
@@ -136,16 +135,32 @@ class AV2StaticMapLoader(SpatialLoader):
 
 
 class AV2AgentLoader(SpatialLoader):
-    """A loader for agent trajectories from a parquet file for a specific scenario."""
+    """A loader for agent trajectories from a parquet file for a specific scenario.
 
-    def __init__(self, prediction_path: str | Path, split_path: str | Path, scenario_id: str,):
+    Note:
+        We assume that an agent type never changes over time.
+    
+    Args:
+        threshold_is_moving: A threshold for determining whether an agent is considered "moving" based on its predicted trajectory.
+            Moving iff avgerage speed is more than this threshold in m/s. This is used to generate "moving(agent_X)." facts for the logic.
+    """
+
+    def __init__(self,
+        prediction_path: str | Path,
+        split_path: str | Path,
+        scenario_id: str,
+        include_individual_agents: bool = True,
+        threshold_is_moving: float = 0.25,
+    ):
         self.prediction_path = Path(prediction_path)
         self.scenario_path = Path(split_path) / scenario_id / f"scenario_{scenario_id}.parquet"
         self.scenario_id = scenario_id
         self.features = defaultdict(list, {})
         self.focal_predictions = []
-        self.agents = []
+        self.agents = []  # This exludes the focal agent, which is stored separately in `focal_predictions`
         self.current_index = 0
+        self.include_individual_agents = include_individual_agents
+        self.threshold_is_moving = threshold_is_moving
 
         self.load()
 
@@ -163,17 +178,20 @@ class AV2AgentLoader(SpatialLoader):
         else:
             for agent in self.agents:
                 agent["covariance"] = covariance.get(agent["agent_type"], 1)
-        
 
     def load(self) -> None:
         """Load predicted trajectories for the specified scenario from the prediction parquet file."""
-        df = pd.read_parquet(self.prediction_path)
-        df = df[df["scenario_id"] == self.scenario_id]
 
         setup = pd.read_parquet(self.scenario_path)
         focal_track_id = setup["focal_track_id"].iloc[0]
 
-
+        df = pd.read_parquet(self.prediction_path, filters=[("scenario_id", "==", self.scenario_id)])
+        # For simplicity, we only take the best non-focal predictions
+        # Note that the current focal agent must not be the "AV" (Autonomous Vehicle) track,
+        # since we also evaluate on other agents in the scenario.
+        focal_mask = df["track_id"] == focal_track_id
+        best_non_focal = df[~focal_mask].sort_values("probability", ascending=False).drop_duplicates("track_id", keep="first")
+        df = pd.concat([df[focal_mask], best_non_focal])
 
         for _, row in df.iterrows():
             track_id = row.get("track_id", "unknown")
@@ -181,7 +199,19 @@ class AV2AgentLoader(SpatialLoader):
 
             x_traj = row.get("predicted_trajectory_x", [])
             y_traj = row.get("predicted_trajectory_y", [])
+            assert len(x_traj) == len(y_traj), f"Trajectory length mismatch for track_id {track_id} in scenario {self.scenario_id}."
             agent_type = setup[setup["track_id"] == track_id]["object_type"].iloc[0]
+
+            if len(x_traj) > 0 and len(y_traj) > 0:
+                # Calculate average speed over the predicted trajectory to determine if the agent is moving
+                distances = np.sqrt(np.diff(x_traj)**2 + np.diff(y_traj)**2)
+                total_distance = np.sum(distances)
+                total_time = len(x_traj) * 0.1  # Assuming predictions are at 10 Hz
+                avg_speed = total_distance / total_time
+                is_moving = avg_speed > self.threshold_is_moving
+            else:
+                is_moving = False
+                print(f"Warning: No trajectory data for track_id {track_id} in scenario {self.scenario_id}.")
 
             state = {
                 "track_id": track_id,
@@ -190,6 +220,7 @@ class AV2AgentLoader(SpatialLoader):
                 "y_traj": y_traj,
                 "agent_type": agent_type,
                 "covariance": 1,
+                "is_moving": is_moving,
             }
 
             if track_id == focal_track_id:
@@ -220,16 +251,17 @@ class AV2AgentLoader(SpatialLoader):
 
             x = float(x_traj[index])
             y = float(y_traj[index])
-            # TODO: incorporate agent["probability"] for certainty in prediction? 
+            # TODO: incorporate agent["probability"] for certainty in prediction (dropped in load() for simplicity for now)
 
-            self.features[agent["agent_type"]].append(
-                CartesianLocation(
-                    east=x, north=y, 
-                    name=agent['track_id'], 
-                    location_type=agent["agent_type"], 
-                    covariance=agent["covariance"] * np.eye(2),
-                )
+            location = CartesianLocation(
+                east=x, north=y, 
+                name=agent['track_id'], 
+                location_type=agent["agent_type"], 
+                covariance=agent["covariance"] * np.eye(2),
             )
+            self.features[agent["agent_type"]].append(location)
+            if self.include_individual_agents:
+                self.features[f"agent_{agent['track_id']}"].append(location)
 
     def to_cartesian_map(self) -> CartesianMap:
         """Creates a CartesianMap from the loaded agent features.
@@ -244,11 +276,25 @@ class AV2AgentLoader(SpatialLoader):
         self.current_index = 0
         self._build_features()
 
-    def get_focal_type_fact(self) -> str:
-        """Get a Resin fact that describes the focal agent type.
+    @cached_property
+    def resin_facts_and_sources(self) -> str:
+        """A string of Resin facts describing the focal agent and the non-focal agents."""
+        facts = ""
 
-        Returns:
-            One of "is_vehile.", "is_bus.", "is_cyclist.", "is_motorcyclist." or "is_pedestrian."
-        """
-        return f"is_{self.focal_predictions["agent_type"]}.\n"
-        
+        # One of "is_vehicle.", "is_bus.", "is_cyclist.", "is_motorcyclist." or "is_pedestrian."
+        facts += f"is_{self.focal_predictions[0]['agent_type']}.\n"
+
+        if self.include_individual_agents:
+            for agent in self.agents:
+                agent_name = f"agent_{agent['track_id']}"
+
+                # Facts like "vehicle(agent_123).", "pedestrian(agent_456).", etc.
+                facts += f"{agent['agent_type']}({agent_name}).\n"
+
+                facts += f"distance({agent_name}) <- source(\"/star_map/distance/{agent_name}\", Density).\n"
+
+                # Facts like "moving(agent_123)." if the agent is predicted to be non-stationary (e.g., not parked)
+                if agent.get('is_moving', False):
+                    facts += f"moving({agent_name}).\n"
+
+        return facts

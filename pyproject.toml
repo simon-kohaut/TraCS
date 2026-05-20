@@ -33,6 +33,7 @@ dependencies = [
     "contextily",
     "nflows",
     "torch",
+    "pandas[performance]",
 ]
 
 [project.scripts]

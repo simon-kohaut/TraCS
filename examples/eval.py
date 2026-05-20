@@ -119,7 +119,7 @@ def tracs_pointwise_to_score(pointwise_scores):
     return np.exp(np.sum(np.log(np.clip(pointwise_scores, 1e-8, 1.0))) / N)
 
 
-def tracs_rate_all(
+def _tracs_rate_all(
     promis, 
     trajectories,
     agent_loader, 
@@ -162,11 +162,12 @@ def tracs_rate_all(
                 promis.star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
 
         distance_traveled_km = np.linalg.norm(transitions / 1000.0, axis=1)
-        time_in_hrs = 0.1 / 60 / 60  # Argoverse 2 is sampled at 10 Hz
+        time_in_s = 0.1  # Argoverse 2 is sampled at 10 Hz
+        time_in_hrs = time_in_s / 60 / 60
         speed = distance_traveled_km / time_in_hrs  # km/h
         if last_speeds is None:
             last_speeds = speed  # Assume initial acceleration is zero
-        acceleration = (speed - last_speeds) / time_in_hrs
+        acceleration = (speed - last_speeds) / time_in_s  # km/h/s
         last_speeds = speed
 
         if speed_writer is not None:
@@ -225,29 +226,32 @@ def tracs_rate_scenario(
         logic=logic,
     )
 
-    promis = ProMis(star_map, logic, 7)
+    augmented_logic = logic + "\n# Appended automatically:\n" + agent_loader.resin_facts
+
+    promis = ProMis(star_map, augmented_logic, 7, verbose=False)
     promis.initialize(evaluation_points=raster, interpolation_method="nearest")
 
-    if 'source("/sensors/speed"' in logic:
+    if 'source("/sensors/speed"' in augmented_logic:
         speed_writer = promis._resin.make_writer_for("speed")
     else:
         speed_writer = None
-    if 'source("/sensors/acceleration"' in logic:
+    if 'source("/sensors/acceleration"' in augmented_logic:
         acceleration_writer = promis._resin.make_writer_for("acceleration")
     else:
         acceleration_writer = None
 
     # Get ground truth trajectory and append to predictions for rating
-    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
-    ground_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
+    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
+                                   filters=[("scenario_id", "==", scenario_id)])
+    ground_truth_traj = ground_truth.iloc[0]
     ground_truth_traj["x_traj"] = ground_truth_traj["gt_trajectory_x"]
     ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
     trajectories = agent_loader.focal_predictions + [ground_truth_traj]
 
     # Score of TraCS alone
-    scores = tracs_rate_all(promis, trajectories, agent_loader, static_map,
-                            speed_writer=speed_writer, acceleration_writer=acceleration_writer,
-                            scenario_length=scenario_length)
+    scores = _tracs_rate_all(promis, trajectories, agent_loader, static_map,
+                             speed_writer=speed_writer, acceleration_writer=acceleration_writer,
+                             scenario_length=scenario_length)
     for i, prediction in enumerate(agent_loader.focal_predictions):
         prediction["tracs_pointwise_scores"] = scores[i]
         prediction["tracs_trajectory_score"] = tracs_pointwise_to_score(scores[i])
@@ -281,9 +285,10 @@ def show_comparison_study(scored_predictions, gt_score, data_root: Path, predict
 
     # Load scneario
     av2_map = ArgoverseStaticMap.from_json(data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json")
-    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
-    grount_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
-    
+    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
+                                   filters=[("scenario_id", "==", scenario_id)])
+    grount_truth_traj = ground_truth.iloc[0]
+
     # Get normalized (scores for better viewing)
     tracs_scores_vals = np.concatenate(scored_predictions["tracs_pointwise_scores"].values)
     tracs_scores_norm = plt.Normalize(vmin=tracs_scores_vals.min(), vmax=tracs_scores_vals.max())
@@ -452,8 +457,9 @@ def show_all_relations(
             del all_relations[omit]
 
     # Get ground truth trajectory and append to predictions for rating
-    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
-    ground_truth_traj = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
+    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
+                                   filters=[("scenario_id", "==", scenario_id)])
+    ground_truth_traj = ground_truth.iloc[0]
     ground_truth_traj["x_traj"] = ground_truth_traj["gt_trajectory_x"]
     ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
     trajectories = agent_loader.focal_predictions + [ground_truth_traj]
@@ -537,8 +543,9 @@ def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):
     methods = ["backbone_trajectory_score", "tracs_trajectory_score", "tracs_backbone_independent_op", "tracs_backbone_linear_op"]
 
     # Get ground truth trajectory for comparison
-    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet")
-    gt_track = ground_truth[ground_truth["scenario_id"] == scenario_id].iloc[0]
+    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
+                                   filters=[("scenario_id", "==", scenario_id)])
+    gt_track = ground_truth.iloc[0]
     gt_track = np.array([gt_track["gt_trajectory_x"], gt_track["gt_trajectory_y"]]).T
 
     predicted_tracks = np.moveaxis(

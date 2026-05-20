@@ -20,6 +20,7 @@ class IterationsPerSecondColumn(ProgressColumn):
 tracs_logic = """
 distance(vehicle) <- source("/star_map/distance/vehicle", Density).
 speed <- source("/sensors/speed", Number).
+acceleration <- source("/sensors/acceleration", Number).
 
 # Define three speed levels for city driving with corresponding safe distances
 low_speed if speed < 20.
@@ -35,6 +36,9 @@ safe_at_high if high_speed and distance(vehicle) > 20.
 landscape if safe_at_low.
 landscape if safe_at_medium.
 landscape if safe_at_high.
+
+safe if vehicle(V) and distance(V) > 10.
+landscape if distance(vehicle) > 5 and speed < 50 and safe.
 
 landscape -> target("/landscape").
 """
@@ -121,7 +125,7 @@ def main(args) -> None:
     scenario_ids = [file.stem for file in (args.data_root / "av2" / args.split).iterdir()]
 
     try:
-        with Progress(*Progress.get_default_columns(), MofNCompleteColumn(), IterationsPerSecondColumn()) as progress:
+        with Progress(*Progress.get_default_columns(), MofNCompleteColumn(), IterationsPerSecondColumn(), speed_estimate_period=60) as progress:
             task = progress.add_task("Processing scenarios...", total=len(scenario_ids))
             if args.workers is not None:
                 with multiprocessing.Pool(args.workers) as p:
