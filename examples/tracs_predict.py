@@ -1,31 +1,11 @@
-from argparse import ArgumentParser
-from pathlib import Path
 import multiprocessing
+from argparse import ArgumentParser
 from functools import partial
-from typing import Callable
-from tqdm import tqdm
-import time
-import os
+from pathlib import Path
 
-import pandas as pd
-import numpy as np
+from rich.progress import Progress
 
-from tracs.av2_loader import AV2AgentLoader, AV2StaticMapLoader
-from promis import StaRMap, ProMis
-from promis.geo import CartesianMap, CartesianRasterBand, CartesianCollection
-
-N_WORKERS = 75
-NUM_MAPS = 20
-
-STEP_SIZE = 1
-SCENARIO_LENGTH = 60
-
-BUFFER_SPACE = 20
-X_RES, Y_RES = 50, 50
-RESOLUTION = X_RES * Y_RES
-
-MODALITIES = 6
-TRUST = 0.4
+from eval import tracs_rate_scenario
 
 tracs_logic = """
 distance(vehicle) <- source("/star_map/distance/vehicle", Density).
@@ -47,19 +27,7 @@ landscape if safe_at_medium.
 landscape if safe_at_high.
 
 landscape -> target("/landscape").
-""" # TODO take from json
-
-
-FEATURE_DESCRIPTION = {
-    "crosswalk": "PEDESTRIAN_CROSSING",
-    "drivable_area": "DRIVABLE_AREA",
-    "intersection": "INTERSECTION",
-    "vehicle_lane": "VEHICLE",
-    "bike_lane": "BIKE",
-    "bus_lane": "BUS",
-    "solid_line": ["DOUBLE_SOLID_YELLOW", "DOUBLE_SOLID_WHITE", "SOLID_YELLOW", "SOLID_WHITE",],
-    "dashed_line": ["DASHED_WHITE", "DASHED_YELLOW", "DOUBLE_DASH_YELLOW", "DOUBLE_DASH_WHITE",],
-} # according to system prompt
+"""
 
 
 PREAMBLE_STATIC = """
@@ -112,165 +80,42 @@ PREAMBLE_DYNAMIC = """
 """
 
 
-def tracs_pipeline(
-    scenario_id: str,
-    logic: str, 
-    feature_description: dict[str, str | list[str]],
-    prediction_path: Path,
-    data_root: Path,
-    split: str,
-    write: bool = True,
-) -> None:
 
-    static_map = AV2StaticMapLoader(
-        path=data_root / split / scenario_id / f"log_map_archive_{scenario_id}.json",
-        feature_description=feature_description,
-    ).to_cartesian_map()
-    static_map.apply_covariance(0.2 * np.eye(2))
+def main(args) -> None:
+    submission_file = args.data_root / "av2_backbone_outputs" / args.backbone / "submission.parquet"
 
-    agent_loader = AV2AgentLoader(
-        prediction_path=prediction_path,
-        split_path=data_root / split,
-        scenario_id=scenario_id,
+    pipeline_func = partial(
+        tracs_rate_scenario,
+        # scenario_id remains as a variable argument 
+        logic=tracs_logic,
+        prediction_path=submission_file,
+        data_root=args.data_root,
+        split=args.split,
     )
 
-    agent_loader.reset()
-    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)}) #minADE1 DeMo
-
-    uam = CartesianMap(None, static_map.features + agent_loader.features)
-    star_map = StaRMap(uam)
-
-    x_pred_flat = np.array([f_pred["x_traj"] for f_pred in agent_loader.focal_predictions]).ravel()
-    y_pred_flat = np.array([f_pred["y_traj"] for f_pred in agent_loader.focal_predictions]).ravel()
-    xmin, xmax = x_pred_flat.min(), x_pred_flat.max()
-    ymin, ymax = y_pred_flat.min(), y_pred_flat.max()
-
-    raster = CartesianRasterBand(
-        origin=None,
-        resolution=(X_RES, Y_RES),
-        width=xmax - xmin + BUFFER_SPACE,
-        height=ymax - ymin + BUFFER_SPACE,
-    )   
-    raster.data["east"] += (xmin + xmax) / 2
-    raster.data["north"] += (ymin + ymax) / 2
-
-    star_map.initialize(
-        evaluation_points=raster,
-        number_of_random_maps=NUM_MAPS,
-        logic=logic,
-    )
-
-    promis = ProMis(star_map, logic, RESOLUTION)
-    writer = promis._resin.make_writer_for("speed")
-    writer.write(np.array([30] * RESOLUTION), time.monotonic()) # TODO integrate smart speed
-    promis.initialize(
-        evaluation_points=raster,
-    )
-
-    star_map.link(promis)
-
-    rc = promis.get_reactive_circuit()    
-
-    # lift every distance relation, as they all change here. 
-    # TODO if in composite scenario, then maybe add furter constraints
-    names = promis.get_names()
-    dynamic_relation_indices = [i for i, name in enumerate(names) if "distance_" in name]
-    for i in dynamic_relation_indices:
-        rc.lift_leaf(i)
-        rc.lift_leaf(i + 1)
-
-    num_timesteps = len(agent_loader.focal_predictions[0]["x_traj"])
-
-    # TODO add gt evaluation here already?
-
-    interpolator: Callable
-    for timestep in range(0, num_timesteps-1): 
-        # score first self.update_frequency positions on one star map 
-        landscape = promis.update()
-        if landscape is not None:
-            interpolator = landscape.get_interpolator()
-
-        for prediction in agent_loader.focal_predictions:
-            coords = np.array([
-                prediction["x_traj"][timestep],
-                prediction["y_traj"][timestep],
-            ])
-            tracs_scores: list = prediction.get("tracs_scores", [])
-            tracs_scores.extend(interpolator(coords.T))
-            prediction["tracs_scores"] = tracs_scores
-
-        agent_loader.update(STEP_SIZE)
-        uam.features = agent_loader.features
-        agent_locations = CartesianCollection(None)
-        positions = np.vstack([np.array([a["x_traj"], a["y_traj"]])[:, timestep] for a in agent_loader.focal_predictions])
-        if timestep < SCENARIO_LENGTH - 1:
-            next_positions = np.vstack([np.array([a["x_traj"], a["y_traj"]])[:, timestep+1] for a in agent_loader.focal_predictions])
-            transitions=np.hstack((next_positions, np.zeros((len(agent_loader.focal_predictions), 1))))
-        
-        agent_locations.append_with_default(
-            coordinates=positions,
-            value=0.0,
-            transitions=transitions,
-        )
-        star_map.update("distance", "vehicle", agent_locations, 2) # TODO make less specific
-        # TODO update only on next steps per trajectories, not entire raster
-        # for the starmap update, only features mentioned in the update are necessary. 
-
-    # post processing
-    for prediction in agent_loader.focal_predictions:
-        scores = np.array(prediction["tracs_scores"])
-        prediction["tracs_scores"] = scores.tolist()
-        prediction["tracs_score"] = scores.mean()
-        prediction["tracs_std"] = scores.std()
-        prediction["tracs_weight"] = TRUST * prediction["tracs_score"] + (1 - TRUST) / MODALITIES
-        
-    scored_predictions = pd.DataFrame(agent_loader.focal_predictions)
-    scored_predictions["tracs_weight_normalized"] = scored_predictions["tracs_weight"] / np.sum(scored_predictions["tracs_weight"])
-    scored_predictions["tracs_factor"] = scored_predictions["probability"] * scored_predictions["tracs_weight"] \
-        / np.sum(scored_predictions["probability"] * scored_predictions["tracs_weight"] ) # or use only / np.sum() to normalize?
-
-    if write:
-        scored_predictions.to_parquet(data_root / "tracs_predictions" / split / f"{scenario_id}.parquet")
-        return None
-    else: 
-        return scored_predictions
-
-
-def main(args):
-    data_root = Path(args.data_root)
-
-    for mode in ["test"]:
-        os.makedirs(data_root / "tracs_predictions" / mode, exist_ok=True)
-        
-        mode_dir = data_root / mode / "raw"
-        scenario_files = os.listdir(mode_dir)
-
-        pipeline_func = partial(
-            tracs_pipeline,
-            logic=tracs_logic,
-            feature_description=FEATURE_DESCRIPTION,
-            prediction_path=args.initial_predictions,
-            # scenario_id remains as a variable argument 
-            data_root=data_root,
-            mode=mode,
-            write=True,
-        )
-
-        if args.parallel:
-            with multiprocessing.Pool(N_WORKERS) as p:
-                for _ in tqdm(p.imap(pipeline_func, scenario_files), total=len(scenario_files)):
-                    pass
+    scenario_ids = [
+        file.stem for file in
+        (args.data_root / "av2" / args.split).iterdir()
+    ]
+    with Progress() as progress:
+        task = progress.add_task("Processing scenarios...", total=len(scenario_ids))
+        if args.workers is not None:
+            with multiprocessing.Pool(args.workers) as p:
+                for _ in p.imap(pipeline_func, scenario_ids):
+                    progress.advance(task)
         else:
-            for file in tqdm(scenario_files):
+            for file in scenario_ids:
                 pipeline_func(file)
+                progress.advance(task)
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--data_root", "-d", type=str, default='/path/to/data_root')
-    parser.add_argument("--parallel", "-p", action="store_true")
-    parser.add_argument("--initial_predictions", "-i", type=str, default=None)
-
+    parser.add_argument("--data_root", type=Path, default=Path("data"))
+    parser.add_argument("--split", type=str, default="test")
+    parser.add_argument("--backbone", type=str, default="DeMo")
+    parser.add_argument("--workers", type=int, default=8)
+    # TODO consume JSON config file for logic
     args = parser.parse_args()
 
     main(args)

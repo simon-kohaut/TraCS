@@ -37,7 +37,7 @@ FEATURE_DESCRIPTION = {
     "bus_lane": "BUS",
     "solid_line": ["DOUBLE_SOLID_YELLOW", "DOUBLE_SOLID_WHITE", "SOLID_YELLOW", "SOLID_WHITE",],
     "dashed_line": ["DASHED_WHITE", "DASHED_YELLOW", "DOUBLE_DASH_YELLOW", "DOUBLE_DASH_WHITE",],
-} 
+}
 
 
 def city_to_origin(city_name: str) -> PolarLocation:
