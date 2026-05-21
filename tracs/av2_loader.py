@@ -242,30 +242,49 @@ class AV2AgentLoader(SpatialLoader):
     def _build_features(self) -> None:
         """Update the features list to represent the agents at the current index."""
         self.features = defaultdict(list, {})
-        agent_states = self.agents # [self.focal_predictions] + self.agents
-        for agent in agent_states:
+
+        standstill_agents = []
+        for agent in self.agents:
             x_traj = agent["x_traj"]
             y_traj = agent["y_traj"]
 
             index = min(self.current_index, len(x_traj)-1)
 
-            x = float(x_traj[index])
-            y = float(y_traj[index])
+            x = x_traj[index].item()
+            y = y_traj[index].item()
             # TODO: incorporate agent["probability"] for certainty in prediction (dropped in load() for simplicity for now)
 
-            self.features[agent["agent_type"]].append(CartesianLocation(
-                east=x, north=y,
-                name=agent['track_id'], 
-                location_type=agent["agent_type"], 
-                covariance=agent["covariance"] * np.eye(2),
-            ))
-            if self.include_individual_agents:
-                self.features[f"agent_{agent['track_id']}"].append(CartesianLocation(
+            self.features[agent["agent_type"]].append(
+                CartesianLocation(
                     east=x, north=y,
                     name=agent['track_id'], 
-                    location_type=f"agent_{agent['track_id']}",
+                    location_type=agent["agent_type"], 
                     covariance=agent["covariance"] * np.eye(2),
-                ))
+                )
+            )
+            if not agent["is_moving"]:
+                standstill_agents.append(agent)
+            else:
+                if self.include_individual_agents:
+                    self.features[f"agent_{agent['track_id']}"].append(
+                        CartesianLocation(
+                            east=x, north=y,
+                            name=agent['track_id'], 
+                            location_type=f"agent_{agent['track_id']}",
+                            covariance=agent["covariance"] * np.eye(2),
+                        )
+                    )
+
+        self.features["standing_vehicle"].extend([
+            CartesianLocation(
+                east=agent["x_traj"][self.current_index].item(), 
+                north=agent["y_traj"][self.current_index].item(),
+                name=agent['track_id'],
+                location_type="standing_vehicle",
+                covariance=agent["covariance"] * np.eye(2),
+            )
+            for agent in standstill_agents if agent["agent_type"] in ["VEHICLE", "BUS"]
+        ])
 
     def to_cartesian_map(self) -> CartesianMap:
         """Creates a CartesianMap from the loaded agent features.
@@ -290,15 +309,15 @@ class AV2AgentLoader(SpatialLoader):
 
         if self.include_individual_agents:
             for agent in self.agents:
+                if not agent['is_moving']:
+                    continue  # Only include moving agents in the facts and sources
+
                 agent_name = f"agent_{agent['track_id']}"
+
+                # Require "distance(agent_123) <- source("/star_map/distance/agent_123", Density)."
+                facts += f"distance({agent_name}) <- source(\"/star_map/distance/{agent_name}\", Density).\n"
 
                 # Facts like "vehicle(agent_123).", "pedestrian(agent_456).", etc.
                 facts += f"{agent['agent_type']}({agent_name}).\n"
-
-                facts += f"distance({agent_name}) <- source(\"/star_map/distance/{agent_name}\", Density).\n"
-
-                # Facts like "moving(agent_123)." if the agent is predicted to be non-stationary (e.g., not parked)
-                if agent.get('is_moving', False):
-                    facts += f"moving({agent_name}).\n"
 
         return facts

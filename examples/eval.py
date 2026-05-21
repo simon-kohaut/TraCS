@@ -126,7 +126,8 @@ def _tracs_rate_all(
     static_map,
     speed_writer=None,
     acceleration_writer=None,
-    scenario_length = 60,
+    scenario_length: int = 60,
+    sample_rate: float = 10,  # Argoverse 2 is sampled at 10 Hz
 ) -> None:
     agent_loader.reset()
     # Initialize the variance with the minADE1 of DeMo
@@ -136,6 +137,8 @@ def _tracs_rate_all(
     tracs_scores = np.zeros((len(trajectories), num_timesteps))
     last_speeds = None
     for timestep in range(0, num_timesteps):
+        current_time = timestep / sample_rate
+
         # Get next predicted locations and transitions
         agent_loader.update(1)
 
@@ -162,7 +165,7 @@ def _tracs_rate_all(
                 promis.star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
 
         distance_traveled_km = np.linalg.norm(transitions / 1000.0, axis=1)
-        time_in_s = 0.1  # Argoverse 2 is sampled at 10 Hz
+        time_in_s = 1.0 / sample_rate
         time_in_hrs = time_in_s / 60 / 60
         speed = distance_traveled_km / time_in_hrs  # km/h
         if last_speeds is None:
@@ -171,9 +174,9 @@ def _tracs_rate_all(
         last_speeds = speed
 
         if speed_writer is not None:
-            speed_writer.write(speed, time.monotonic())
+            speed_writer.write(speed, current_time)
         if acceleration_writer is not None:
-            acceleration_writer.write(acceleration, time.monotonic())
+            acceleration_writer.write(acceleration, current_time)
 
         # Get new inference results and append as tracs scores
         time.sleep(0.01)  # Ensures that all data has already transferred
