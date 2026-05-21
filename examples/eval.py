@@ -11,38 +11,13 @@ import seaborn as sns
 import pandas as pd
 import av2.rendering.vector as vector_plotting_utils
 from av2.datasets.motion_forecasting.eval import metrics
-from av2.geometry.utm import convert_city_coords_to_wgs84, CityName, CITY_ORIGIN_LATLONG_DICT
+from av2.geometry.utm import convert_city_coords_to_wgs84
 from av2.map.map_api import ArgoverseStaticMap
 from promis import StaRMap, ProMis
-from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection, PolarLocation
+from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection
 
 # TraCS
 from tracs.av2_loader import AV2StaticMapLoader, AV2AgentLoader
-
-CITY_NAME_MAP = {
-    "austin": CityName.ATX,
-    "miami": CityName.MIA,
-    "pittsburgh": CityName.PIT,
-    "washington-dc": CityName.WDC,
-    "palo-alto": CityName.PAO,
-    "dearborn": CityName.DTW,
-}
-
-FEATURE_DESCRIPTION = {
-    "crosswalk": "PEDESTRIAN_CROSSING",
-    "drivable_area": "DRIVABLE_AREA",
-    "intersection": "INTERSECTION",
-    "vehicle_lane": "VEHICLE",
-    "bike_lane": "BIKE",
-    "bus_lane": "BUS",
-    "solid_line": ["DOUBLE_SOLID_YELLOW", "DOUBLE_SOLID_WHITE", "SOLID_YELLOW", "SOLID_WHITE",],
-    "dashed_line": ["DASHED_WHITE", "DASHED_YELLOW", "DOUBLE_DASH_YELLOW", "DOUBLE_DASH_WHITE",],
-}
-
-
-def city_to_origin(city_name: str) -> PolarLocation:
-    lat, lon = CITY_ORIGIN_LATLONG_DICT[CITY_NAME_MAP[city_name]]
-    return PolarLocation(longitude=lon, latitude=lat)
 
 
 def add_basemap(ax, tile_img, xmin, xmax, ymin, ymax, alpha=0.5):
@@ -128,6 +103,7 @@ def _tracs_rate_all(
     acceleration_writer=None,
     scenario_length: int = 60,
     sample_rate: float = 10,  # Argoverse 2 is sampled at 10 Hz
+    number_of_random_maps: int = 10,
 ) -> None:
     agent_loader.reset()
     # Initialize the variance with the minADE1 of DeMo
@@ -159,10 +135,12 @@ def _tracs_rate_all(
         )
 
         # Write new data via StaR Map
-        relations = promis.star_map.get_all()
-        for relation in relations:
-            for location_type in relations[relation]:
-                promis.star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
+        promis.star_map.update(
+            sample_points=agent_locations,
+            number_of_random_maps=number_of_random_maps,
+            interpolation_method="nearest",
+            timestamp=current_time,
+        )
 
         distance_traveled_km = np.linalg.norm(transitions / 1000.0, axis=1)
         time_in_s = 1.0 / sample_rate
@@ -205,15 +183,16 @@ def tracs_rate_scenario(
         Speed and acceleration are written if requested as, e.g., `source("/sensors/speed", Number)`.
     """
     # Argoverse 2 scenario loading
-    static_map = AV2StaticMapLoader(
-        path=data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json",
-        feature_description=FEATURE_DESCRIPTION,
-    ).to_cartesian_map()
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
         split_path=data_root / "av2" / split,
         scenario_id=scenario_id,
     )
+    static_map_loader = AV2StaticMapLoader(
+        path=data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json",
+        focal_starting_location=agent_loader.focal_starting_location,
+    )
+    static_map = static_map_loader.to_cartesian_map()
 
     # Initialize StaR Map and ProMis
     raster = CartesianRasterBand(
@@ -232,6 +211,7 @@ def tracs_rate_scenario(
         number_of_random_maps=25,
         logic=augmented_logic,
     )
+
     promis = ProMis(star_map, augmented_logic, 7, verbose=False)
     promis.initialize(evaluation_points=raster, interpolation_method="nearest")
 

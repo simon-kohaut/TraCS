@@ -14,13 +14,40 @@ from collections import defaultdict
 from pathlib import Path
 
 # Third Party
+from av2.geometry.utm import CityName, CITY_ORIGIN_LATLONG_DICT
 from av2.map.map_api import ArgoverseStaticMap
 import pandas as pd
 import numpy as np
 
 # ProMis
-from promis.geo import CartesianLocation, CartesianPolygon, CartesianPolyLine, CartesianMap
+from promis.geo import CartesianLocation, CartesianPolygon, CartesianPolyLine, CartesianMap, PolarLocation
 from promis.loaders.spatial_loader import SpatialLoader
+
+
+CITY_NAME_MAP = {
+    "austin": CityName.ATX,
+    "miami": CityName.MIA,
+    "pittsburgh": CityName.PIT,
+    "washington-dc": CityName.WDC,
+    "palo-alto": CityName.PAO,
+    "dearborn": CityName.DTW,
+}
+
+FEATURE_DESCRIPTION = {
+    "crosswalk": "PEDESTRIAN_CROSSING",
+    "drivable_area": "DRIVABLE_AREA",
+    "intersection": "INTERSECTION",
+    "vehicle_lane": "VEHICLE",
+    "bike_lane": "BIKE",
+    "bus_lane": "BUS",
+    "solid_line": ["DOUBLE_SOLID_YELLOW", "DOUBLE_SOLID_WHITE", "SOLID_YELLOW", "SOLID_WHITE",],
+    "dashed_line": ["DASHED_WHITE", "DASHED_YELLOW", "DOUBLE_DASH_YELLOW", "DOUBLE_DASH_WHITE",],
+}
+
+
+def city_to_origin(city_name: str) -> PolarLocation:
+    lat, lon = CITY_ORIGIN_LATLONG_DICT[CITY_NAME_MAP[city_name]]
+    return PolarLocation(longitude=lon, latitude=lat)
 
 
 class AV2StaticMapLoader(SpatialLoader):
@@ -47,12 +74,17 @@ class AV2StaticMapLoader(SpatialLoader):
         feature_description: A mapping from a location type (e.g., "drivable_area") to
             an AV2 map feature type (e.g., "drivable_area", "lane_segment", "pedestrian_crossing").
             If provided, data is loaded upon initialization. Defaults to None.
+        focal_starting_location: An optional CartesianLocation representing the starting location of the focal agent.
+            Used for extracting the "focal_lane" feature, which includes all lane segments connected to the lane segment closest to this location.
+        threshold_focal_lane: Determines whether an agent is considered to be on the focal lane. Distance to the centerline in meters.
     """
 
     def __init__(
         self,
         path: str | Path,
-        feature_description: dict[str, str | list[str]] | None = None,
+        feature_description: dict[str, str | list[str]] | None = FEATURE_DESCRIPTION,
+        focal_starting_location: CartesianLocation | None = None,
+        threshold_focal_lane: float = 1.0
     ):
         self.path = Path(path)
         self.features = defaultdict(list, {})
@@ -60,6 +92,9 @@ class AV2StaticMapLoader(SpatialLoader):
         # Load the Argoverse 2 map API
         self.av2_map = ArgoverseStaticMap.from_json(self.path)
         self.origin = None
+        self.focal_starting_location = focal_starting_location
+        self.threshold_focal_lane = threshold_focal_lane
+
         if feature_description is not None:
             self.load(feature_description)
 
@@ -76,54 +111,105 @@ class AV2StaticMapLoader(SpatialLoader):
                 name (or list of them).
         """
 
-        def invert_feature_description(
-            feature_description: dict[str, str | list[str]]
-        ) -> dict[str, str]:
-            inv = {}
-            for k, v in feature_description.items():
-                if isinstance(v, list):
-                    inv |= {item: k for item in v}
-                else:
-                    inv[v] = k
-            return inv
+        inverted_fd = {}
+        for k, v in feature_description.items():
+            if isinstance(v, list):
+                inverted_fd |= {item: k for item in v}
+            else:
+                inverted_fd[v] = k
 
-        inverted_fd = invert_feature_description(feature_description)
         self._load_drivable_areas(inverted_fd)
         self._load_pedestrian_crossings(inverted_fd)
         self._load_lane_segments(inverted_fd)
-
 
     def _load_drivable_areas(self, inverted_fd: dict[str, str]) -> None:
         location_type = inverted_fd["DRIVABLE_AREA"]
         for da in self.av2_map.vector_drivable_areas.values():
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in da.xyz]
-            self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
+            self.features[location_type].append(CartesianPolygon(coords, name=da.id, location_type=location_type))
 
     def _load_pedestrian_crossings(self, inverted_fd: dict[str, str]) -> None:
         location_type = inverted_fd["PEDESTRIAN_CROSSING"]
         for pc in self.av2_map.vector_pedestrian_crossings.values():
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in pc.polygon]
-            self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
+            self.features[location_type].append(CartesianPolygon(coords, name=pc.id, location_type=location_type))
 
     def _load_lane_segments(self, inverted_fd: dict[str, str]) -> None:
+        lane_centerlines: list[CartesianPolyLine] = []
         for ls in self.av2_map.vector_lane_segments.values():
             lane_type = inverted_fd.get(ls.lane_type.value, str(ls.lane_type.value))
 
             coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in ls.polygon_boundary]
-            self.features[lane_type].append(CartesianPolygon(coords, location_type=lane_type))
+            self.features[lane_type].append(CartesianPolygon(coords, name=ls.id, location_type=lane_type))
             if ls.is_intersection:
                 location_type = inverted_fd.get("INTERSECTION", "INTERSECTION")
-                self.features[location_type].append(CartesianPolygon(coords, location_type=location_type))
+                self.features[location_type].append(CartesianPolygon(coords, name=ls.id, location_type=location_type))
 
             centerline = self.av2_map.get_lane_segment_centerline(ls.id)
             center_coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in centerline]
             location_type = f"{lane_type}_centerline"
-            self.features[location_type].append(CartesianPolyLine(center_coords, location_type=location_type))
+            centerline_polyline = CartesianPolyLine(center_coords, name=ls.id, location_type=location_type)
+            lane_centerlines.append(centerline_polyline)
+            self.features[location_type].append(centerline_polyline)
 
-            for lane_marking in [ls.left_lane_marking, ls.right_lane_marking]:
+            for direction, lane_marking in [("left", ls.left_lane_marking), ("right", ls.right_lane_marking)]:
                 lane_marking_type = inverted_fd.get(lane_marking.mark_type.value, str(lane_marking.mark_type.value))
                 coords = [CartesianLocation(east=pt[0], north=pt[1]) for pt in lane_marking.polyline]
-                self.features[lane_marking_type].append(CartesianPolyLine(coords, location_type=lane_marking_type))
+                name = f"{direction}_{lane_marking_type}_{ls.id}"
+                self.features[lane_marking_type].append(CartesianPolyLine(coords, name=name, location_type=lane_marking_type))
+
+        self._load_focal_lane(lane_centerlines)
+
+    def _load_focal_lane(self, lane_centerlines: list[CartesianPolyLine]) -> None:
+        if self.focal_starting_location is None:
+            return
+
+        # Find the lane centerline closest to the focal starting location
+        closest_centerline = None
+        min_dist = float("inf")
+        for centerline in lane_centerlines:
+            dist = centerline.distance(self.focal_starting_location)
+            if dist < min_dist:
+                min_dist = dist
+                closest_centerline = centerline
+
+        if closest_centerline is None or min_dist > self.threshold_focal_lane:
+            print(f"No suitable focal lane found within {self.threshold_focal_lane}m.")
+            return
+
+        focal_id = int(closest_centerline.name)
+
+        # Build the complete lane connectivity graph in both directions
+        successors: dict[int, list[int]] = defaultdict(list)
+        predecessors: dict[int, list[int]] = defaultdict(list)
+        for ls in self.av2_map.vector_lane_segments.values():
+            successors[ls.id] = self.av2_map.get_lane_segment_successor_ids(ls.id) or []
+            for succ_id in successors[ls.id]:
+                predecessors[succ_id].append(ls.id)
+
+        # Find all lane segments connected to the focal lane (forward and backward)
+        connected_lane_ids: set[int] = set()
+        to_visit: list[int] = [focal_id]
+        while to_visit:
+            current_id = to_visit.pop()
+            if current_id in connected_lane_ids:
+                continue
+            connected_lane_ids.add(current_id)
+            to_visit.extend(successors[current_id])
+            to_visit.extend(predecessors[current_id])
+
+        # Add the connected lane segments to the features under "focal_lane"
+        self.features["focal_lane"].extend([
+            CartesianPolyLine(
+                locations=polyline.locations,  # This copies a mutable list
+                location_type="focal_lane",
+                name=polyline.name,
+                identifier=polyline.identifier,
+                covariance=polyline.covariance,
+                origin=polyline.origin,
+            )
+            for polyline in lane_centerlines if int(polyline.name) in connected_lane_ids
+        ])
 
     def to_cartesian_map(self) -> CartesianMap:
         """Creates a CartesianMap from the loaded features.
@@ -321,3 +407,12 @@ class AV2AgentLoader(SpatialLoader):
                 facts += f"{agent['agent_type']}({agent_name}).\n"
 
         return facts
+
+    @cached_property
+    def focal_starting_location(self) -> CartesianLocation:
+        """Return the starting location of the focal agent as a CartesianLocation."""
+        # We just pick one of the predictions for the starting location, since they all start at the same point
+        state = self.focal_predictions[0]
+        x = state["x_traj"][0].item()
+        y = state["y_traj"][0].item()
+        return CartesianLocation(east=x, north=y, name=self.scenario_id, location_type="focal_agent_start")
