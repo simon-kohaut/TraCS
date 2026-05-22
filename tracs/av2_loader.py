@@ -279,6 +279,8 @@ class AV2AgentLoader(SpatialLoader):
         best_non_focal = df[~focal_mask].sort_values("probability", ascending=False).drop_duplicates("track_id", keep="first")
         df = pd.concat([df[focal_mask], best_non_focal])
 
+        # focal rows are placed first by the pd.concat above, so fx/fy is always set before any non-focal agent is reached
+        fx, fy = None, None
         for _, row in df.iterrows():
             track_id = row.get("track_id", "unknown")
             prob = row.get("probability", 1.0)
@@ -299,6 +301,16 @@ class AV2AgentLoader(SpatialLoader):
                 is_moving = False
                 print(f"Warning: No trajectory data for track_id {track_id} in scenario {self.scenario_id}.")
 
+            if track_id == focal_track_id:
+                min_dist_to_focal = None
+                fx, fy = np.array(x_traj), np.array(y_traj)
+            elif fx is not None and len(x_traj) > 0:
+                n = min(len(x_traj), len(fx))
+                d = np.sqrt((np.array(x_traj[:n]) - fx[:n])**2 + (np.array(y_traj[:n]) - fy[:n])**2)
+                min_dist_to_focal = float(d.min())
+            else:
+                min_dist_to_focal = None
+
             state = {
                 "track_id": track_id,
                 "probability": prob,
@@ -307,6 +319,7 @@ class AV2AgentLoader(SpatialLoader):
                 "agent_type": agent_type,
                 "covariance": 1,
                 "is_moving": is_moving,
+                "min_dist_to_focal": min_dist_to_focal,
             }
 
             if track_id == focal_track_id:

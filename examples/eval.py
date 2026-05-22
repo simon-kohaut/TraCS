@@ -472,6 +472,8 @@ def show_all_relations(
     promis.initialize(evaluation_points=raster, interpolation_method="linear")
     # update() clears the old sparse-point data before resampling at full resolution.
     star_map.update(raster, 10)
+    time.sleep(0.01)
+    landscape_hires = promis.update() or landscape
 
     all_relations = star_map.get_all()
     all_location_types = sorted(star_map.location_types)
@@ -538,7 +540,7 @@ def show_all_relations(
     ax_landscape.set_xlim(xmin, xmax)
     ax_landscape.set_ylim(ymin, ymax)
     ax_landscape.set_title(f"Landscape at timestep {target_timestep}")
-    m_landscape = landscape.scatter(
+    m_landscape = landscape_hires.scatter(
         ax=ax_landscape, alpha=alpha, value_index=value_index,
         zoom=zoom, plot_basemap=plot_basemap,
     )
