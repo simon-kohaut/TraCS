@@ -22,6 +22,7 @@ distance(vehicle) <- source("/star_map/distance/vehicle", Density).
 speed <- source("/sensors/speed", Number).
 acceleration <- source("/sensors/acceleration", Number).
 distance(standing_vehicle) <- source("/star_map/distance/standing_vehicle", Density).
+follows(focal_lane) <- source("/star_map/follows/focal_lane", Probability).
 
 # Define three speed levels for city driving with corresponding safe distances
 low_speed if speed < 20.
@@ -39,7 +40,7 @@ landscape if safe_at_medium.
 landscape if safe_at_high.
 
 safe if vehicle(V) and distance(V) > 10.
-landscape if distance(standing_vehicle) > 2 and speed < 50 and safe.
+landscape if distance(standing_vehicle) > 2 and speed < 50 and safe and follows(focal_lane).
 
 landscape -> target("/landscape").
 """
@@ -126,7 +127,7 @@ def main(args) -> None:
     scenario_ids = [file.stem for file in (args.data_root / "av2" / args.split).iterdir()]
 
     try:
-        with Progress(*Progress.get_default_columns(), MofNCompleteColumn(), IterationsPerSecondColumn(), speed_estimate_period=60) as progress:
+        with Progress(*Progress.get_default_columns(), MofNCompleteColumn(), IterationsPerSecondColumn()) as progress:
             task = progress.add_task("Processing scenarios...", total=len(scenario_ids))
             if args.workers is not None and args.workers > 1:
                 with multiprocessing.Pool(args.workers) as p:

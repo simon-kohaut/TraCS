@@ -84,7 +84,7 @@ class AV2StaticMapLoader(SpatialLoader):
         path: str | Path,
         feature_description: dict[str, str | list[str]] | None = FEATURE_DESCRIPTION,
         focal_starting_location: CartesianLocation | None = None,
-        threshold_focal_lane: float = 1.0
+        threshold_focal_lane: float = 1.0,
     ):
         self.path = Path(path)
         self.features = defaultdict(list, {})
@@ -229,6 +229,11 @@ class AV2AgentLoader(SpatialLoader):
     Args:
         threshold_is_moving: A threshold for determining whether an agent is considered "moving" based on its predicted trajectory.
             Moving iff avgerage speed is more than this threshold in m/s. This is used to generate "moving(agent_X)." facts for the logic.
+        threshold_close: Distance in metres below which a moving agent is counted as "close" to the focal agent.
+            All others are ignored for efficiency.
+        threshold_topk: Maximum number of agents to include in features after distance filtering. If the number of
+            close moving agents exceeds this limit, only the nearest ones (by min_dist_to_focal) are kept.
+            Set to None to disable the cap.
     """
 
     def __init__(self,
@@ -237,6 +242,8 @@ class AV2AgentLoader(SpatialLoader):
         scenario_id: str,
         include_individual_agents: bool = True,
         threshold_is_moving: float = 0.25,
+        threshold_close: float = 25.0,
+        threshold_topk: int | None = 15,
     ):
         self.prediction_path = Path(prediction_path)
         self.scenario_path = Path(split_path) / scenario_id / f"scenario_{scenario_id}.parquet"
@@ -247,6 +254,8 @@ class AV2AgentLoader(SpatialLoader):
         self.current_index = 0
         self.include_individual_agents = include_individual_agents
         self.threshold_is_moving = threshold_is_moving
+        self.threshold_close = threshold_close
+        self.threshold_topk = threshold_topk
 
         self.load()
 
@@ -301,7 +310,8 @@ class AV2AgentLoader(SpatialLoader):
                 is_moving = False
                 print(f"Warning: No trajectory data for track_id {track_id} in scenario {self.scenario_id}.")
 
-            if track_id == focal_track_id:
+            is_focal = track_id == focal_track_id
+            if is_focal:
                 min_dist_to_focal = None
                 fx, fy = np.array(x_traj), np.array(y_traj)
             elif fx is not None and len(x_traj) > 0:
@@ -309,7 +319,8 @@ class AV2AgentLoader(SpatialLoader):
                 d = np.sqrt((np.array(x_traj[:n]) - fx[:n])**2 + (np.array(y_traj[:n]) - fy[:n])**2)
                 min_dist_to_focal = float(d.min())
             else:
-                min_dist_to_focal = None
+                print(f"Warning: Could not compute min_dist_to_focal for track_id {track_id} in scenario {self.scenario_id} (fx={fx is not None}, traj_len={len(x_traj)}).")
+                min_dist_to_focal = 0.0
 
             state = {
                 "track_id": track_id,
@@ -320,12 +331,45 @@ class AV2AgentLoader(SpatialLoader):
                 "covariance": 1,
                 "is_moving": is_moving,
                 "min_dist_to_focal": min_dist_to_focal,
+                "included_in_features": (
+                    is_focal
+                    or (
+                        is_moving
+                        and min_dist_to_focal is not None  # guaranteed to be True
+                        and min_dist_to_focal <= self.threshold_close
+                    )
+                ),
             }
 
-            if track_id == focal_track_id:
+            if is_focal:
                 self.focal_predictions.append(state)
             else:
                 self.agents.append(state)
+
+        if self.threshold_topk is not None:
+            included = [ag for ag in self.agents if ag["included_in_features"]]
+            if len(included) > self.threshold_topk:
+                print(f"Number of included agents ({len(included)}) exceeds threshold_topk ({self.threshold_topk}). Applying top-k filtering based on min_dist_to_focal.")
+                included.sort(key=lambda ag: ag["min_dist_to_focal"])
+                for ag in included[self.threshold_topk:]:
+                    ag["included_in_features"] = False
+
+        # # Temporary debug: moving-agent count + min-distance distribution from focal agent
+        # # (min distance per agent = closest approach; large min → safe to exclude)
+        # moving_agents = [ag for ag in self.agents if ag["is_moving"]]
+        # min_dists = [ag["min_dist_to_focal"] for ag in moving_agents]
+        # if min_dists:
+        #     s = pd.Series(min_dists, name="min_dist")
+        #     stats = s.describe(percentiles=[0.25, 0.5, 0.75]).rename({"25%": "q25", "50%": "q50", "75%": "q75"})
+        #     debug_row = stats[["count", "min", "q25", "q50", "mean", "q75", "max"]].to_frame().T
+        #     debug_row["count"] = debug_row["count"].astype(int)
+        #     n_included = sum(ag["included_in_features"] for ag in moving_agents)
+        #     n_excluded = len(moving_agents) - n_included
+        #     print(f"[moving agents] n={len(moving_agents)}/{len(self.agents)} | included={n_included} excluded={n_excluded} | " + " | ".join(f"{c}={debug_row[c].values[0]:.1f}" for c in debug_row.columns if c != "count"))
+        # else:
+        #     print(f"[moving agents] n=0/{len(self.agents)}")
+
+        self.agents = []
 
         self._build_features()
 
@@ -344,6 +388,9 @@ class AV2AgentLoader(SpatialLoader):
 
         standstill_agents = []
         for agent in self.agents:
+            if not agent["included_in_features"]:
+                continue
+
             x_traj = agent["x_traj"]
             y_traj = agent["y_traj"]
 
@@ -374,6 +421,7 @@ class AV2AgentLoader(SpatialLoader):
                         )
                     )
 
+        # standstill_agents is already filtered for distance to focal agent
         self.features["standing_vehicle"].extend([
             CartesianLocation(
                 east=agent["x_traj"][index].item(),
@@ -408,8 +456,8 @@ class AV2AgentLoader(SpatialLoader):
 
         if self.include_individual_agents:
             for agent in self.agents:
-                if not agent['is_moving']:
-                    continue  # Only include moving agents in the facts and sources
+                if not agent["included_in_features"]:
+                    continue
 
                 agent_name = f"agent_{agent['track_id']}"
 
