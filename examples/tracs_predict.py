@@ -20,9 +20,6 @@ class IterationsPerSecondColumn(ProgressColumn):
 tracs_logic = """
 distance(vehicle) <- source("/star_map/distance/vehicle", Density).
 speed <- source("/sensors/speed", Number).
-# acceleration <- source("/sensors/acceleration", Number).
-# distance(standing_vehicle) <- source("/star_map/distance/standing_vehicle", Density).
-# follows(focal_lane) <- source("/star_map/follows/focal_lane", Probability).
 
 safe if vehicle(V) and distance(V) > 10.
 landscape if safe and speed < 50.
