@@ -10,29 +10,26 @@ TODO for submission: redact the Google drive link, they cannot easily be made an
 
 To get the backbone outputs:
 ```shell
-cd data
+mkdir -p data; cd data
 gdown --folder 1Vk8WSlfocli7gVtyPWC-pU3QbbxVCZXm
-curl -O --output-dir av2 https://s3.amazonaws.com/argoverse/datasets/av2/motion-forecasting/av2_mf_focal_test_annotations.parquet
 ```
 
 To get the scenario files:
 ```shell
 # Assuming you are still in data/
-mkdir av2
-cd av2
+mkdir -p av2; cd av2
 
-curl -LO "https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/train.tar"
-curl -LO "https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/val.tar"
-curl -LO "https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/test.tar"
+curl -LO https://s3.amazonaws.com/argoverse/datasets/av2/motion-forecasting/av2_mf_focal_test_annotations.parquet
+curl -LO https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/train.tar
+curl -LO https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/val.tar
+curl -LO https://s3.amazonaws.com/argoverse/datasets/av2/tars/motion-forecasting/test.tar
 
 # Unpack the scenario files:
-tar -xf train.tar
-tar -xf val.tar
-tar -xf test.tar
+tar -xf train.tar; tar -xf val.tar; tar -xf test.tar
 
 # Cleanup the tar files:
 rm train.tar val.tar test.tar
-cd ..
+cd ../..
 ```
 
 The final directory structure should look like this:
