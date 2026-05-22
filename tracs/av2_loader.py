@@ -343,19 +343,19 @@ class AV2AgentLoader(SpatialLoader):
             self.features[agent["agent_type"]].append(
                 CartesianLocation(
                     east=x, north=y,
-                    name=agent['track_id'], 
-                    location_type=agent["agent_type"], 
+                    name=agent['track_id'],
+                    location_type=agent["agent_type"],
                     covariance=agent["covariance"] * np.eye(2),
                 )
             )
             if not agent["is_moving"]:
-                standstill_agents.append(agent)
+                standstill_agents.append((agent, index))
             else:
                 if self.include_individual_agents:
                     self.features[f"agent_{agent['track_id']}"].append(
                         CartesianLocation(
                             east=x, north=y,
-                            name=agent['track_id'], 
+                            name=agent['track_id'],
                             location_type=f"agent_{agent['track_id']}",
                             covariance=agent["covariance"] * np.eye(2),
                         )
@@ -363,13 +363,13 @@ class AV2AgentLoader(SpatialLoader):
 
         self.features["standing_vehicle"].extend([
             CartesianLocation(
-                east=agent["x_traj"][self.current_index].item(), 
-                north=agent["y_traj"][self.current_index].item(),
+                east=agent["x_traj"][index].item(),
+                north=agent["y_traj"][index].item(),
                 name=agent['track_id'],
                 location_type="standing_vehicle",
                 covariance=agent["covariance"] * np.eye(2),
             )
-            for agent in standstill_agents if agent["agent_type"] in ["VEHICLE", "BUS"]
+            for agent, index in standstill_agents if agent["agent_type"].lower() in ["vehicle", "bus"]
         ])
 
     def to_cartesian_map(self) -> CartesianMap:

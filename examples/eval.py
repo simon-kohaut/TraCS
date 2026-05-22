@@ -1,7 +1,8 @@
 # Standard Library
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import time
+from math import prod
 
 # Third Party
 import contextily as ctx
@@ -17,7 +18,7 @@ from promis import StaRMap, ProMis
 from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection
 
 # TraCS
-from tracs.av2_loader import AV2StaticMapLoader, AV2AgentLoader
+from tracs.av2_loader import CITY_NAME_MAP, AV2StaticMapLoader, AV2AgentLoader
 
 
 def add_basemap(ax, tile_img, xmin, xmax, ymin, ymax, alpha=0.5):
@@ -95,16 +96,17 @@ def tracs_pointwise_to_score(pointwise_scores):
 
 
 def _tracs_rate_all(
-    promis, 
-    trajectories,
-    agent_loader, 
-    static_map,
-    speed_writer=None,
-    acceleration_writer=None,
+    promis: ProMis,
+    trajectories: list[dict[str, Any]],
+    agent_loader: AV2AgentLoader,
+    static_map: CartesianMap,
+    speed_writer: Any | None = None,
+    acceleration_writer: Any | None = None,
     scenario_length: int = 60,
     sample_rate: float = 10,  # Argoverse 2 is sampled at 10 Hz
     number_of_random_maps: int = 10,
-) -> None:
+    callback_after_timestep: Callable[[int, float, CartesianCollection, ProMis], None] = lambda idx, time, landscape, promis: None,
+) -> np.ndarray:
     agent_loader.reset()
     # Initialize the variance with the minADE1 of DeMo
     agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
@@ -112,6 +114,7 @@ def _tracs_rate_all(
     num_timesteps = len(trajectories[0]["x_traj"])
     tracs_scores = np.zeros((len(trajectories), num_timesteps))
     last_speeds = None
+    landscape = None
     for timestep in range(0, num_timesteps):
         current_time = timestep / sample_rate
 
@@ -166,6 +169,9 @@ def _tracs_rate_all(
         for i in range(len(trajectories)):
             tracs_scores[i, timestep] = landscape.values()[i, 0]
 
+        # Call the callback function after each timestep
+        callback_after_timestep(timestep, current_time, landscape, promis)
+
     return tracs_scores
 
 
@@ -176,6 +182,10 @@ def tracs_rate_scenario(
     data_root: Path,
     split: str,
     scenario_length: int = 60,
+    # Meant for custom inspection/visualization during the evaluation loop
+    callback_after_timestep: Callable[[int, float, CartesianCollection, ProMis], None]
+        # The callback receives the current index, time in seconds, landscape, and promis instance.
+        = lambda idx, time, landscape, promis: None,
 ):
     """
 
@@ -235,7 +245,8 @@ def tracs_rate_scenario(
     # Score of TraCS alone
     scores = _tracs_rate_all(promis, trajectories, agent_loader, static_map,
                              speed_writer=speed_writer, acceleration_writer=acceleration_writer,
-                             scenario_length=scenario_length)
+                             scenario_length=scenario_length,
+                             callback_after_timestep=callback_after_timestep)
     for i, prediction in enumerate(agent_loader.focal_predictions):
         prediction["tracs_pointwise_scores"] = scores[i]
         prediction["tracs_trajectory_score"] = tracs_pointwise_to_score(scores[i])
@@ -393,86 +404,83 @@ def show_all_relations(
     prediction_path: Path,
     data_root: Path,
     split: str,
-    timestep: int = 0,
+    target_timestep: int = 0,
     scenario_length: int = 60,
     value_index: int = 0,
+    resolution: tuple[float, float] = (100, 100),  # width, height in pixels
     zoom: int = 12,
     alpha: float = 0.5,
     plot_basemap: bool = False,
-    omit_relations: set[str] = {"depth"},
 ):
+    # Run the full evaluation pipeline, capturing the StaR Map state at the requested timestep
+    # and aborting the loop via an exception so we don't pay for the remaining iterations.
+    captured: dict[str, Any] = {}
+
+    class _StopAfterCapture(Exception):
+        pass
+
+    def _capture(idx: int, _time: float, landscape: CartesianCollection, promis: ProMis) -> None:
+        if idx >= target_timestep:
+            captured["star_map"] = promis.star_map
+            captured["landscape"] = landscape
+            captured["augmented_logic"] = promis.logic
+            raise _StopAfterCapture()
+
+    try:
+        tracs_rate_scenario(
+            scenario_id=scenario_id,
+            logic=logic,
+            prediction_path=prediction_path,
+            data_root=data_root,
+            split=split,
+            scenario_length=scenario_length,
+            callback_after_timestep=_capture,
+        )
+    except _StopAfterCapture:
+        pass
+
+    star_map: StaRMap = captured["star_map"]
+    landscape: CartesianCollection = captured["landscape"]
+    augmented_logic: str = captured["augmented_logic"]
+
+    # Re-instantiate loaders for the plotting context that follows:
+    # av2_map for the road layout, agent_loader for the predicted-others overlay and bounds.
     static_map_loader = AV2StaticMapLoader(
         path=data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json",
-        feature_description=FEATURE_DESCRIPTION,
     )
-    static_map = static_map_loader.to_cartesian_map()
-
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
         split_path=data_root / "av2" / split,
         scenario_id=scenario_id,
     )
-    agent_loader.reset()
-    agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
 
     focal_agent = np.dstack([
         (pred["x_traj"], pred["y_traj"])
         for pred in agent_loader.focal_predictions
     ])
-    mean_x, mean_y = focal_agent.mean(axis=(-1, -2))
-
     xmin, xmax = focal_agent[0, ...].min() - 20, focal_agent[0, ...].max() + 20
     ymin, ymax = focal_agent[1, ...].min() - 20, focal_agent[1, ...].max() + 20
 
-    scenario_df = pd.read_parquet(data_root / "av2" / split / scenario_id / f"scenario_{scenario_id}.parquet")
-    origin = city_to_origin(scenario_df["city"].iloc[0])
+    # Build a high-resolution raster covering the visible scene area and centred on it.
+    # Without the shift the raster lands at (0,0) — the focal starting point — while the
+    # scene at target_timestep is somewhere else, so all grid points fall outside the plot.
+    raster = CartesianRasterBand(None, resolution, xmax - xmin, ymax - ymin)
+    raster.data["east"]  += (xmin + xmax) / 2
+    raster.data["north"] += (ymin + ymax) / 2
 
-    resolution = (100, 100)
-    raster = CartesianRasterBand(origin=origin, resolution=resolution, width=100, height=100)
-    raster.data["east"] += mean_x
-    raster.data["north"] += mean_y
-    star_map = StaRMap(CartesianMap(origin, features=static_map.features | agent_loader.features))
-    star_map.initialize(evaluation_points=raster, number_of_random_maps=25, logic=logic)
+    promis = ProMis(star_map, augmented_logic, prod(resolution))
+    promis.initialize(evaluation_points=raster, interpolation_method="linear")
+    # update() clears the old sparse-point data before resampling at full resolution.
+    star_map.update(raster, 10)
 
     all_relations = star_map.get_all()
     all_location_types = sorted(star_map.location_types)
-    for omit in omit_relations:
-        if omit in all_relations:
-            del all_relations[omit]
-
-    # Get ground truth trajectory and append to predictions for rating
-    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
-                                   filters=[("scenario_id", "==", scenario_id)])
-    ground_truth_traj = ground_truth.iloc[0]
-    ground_truth_traj["x_traj"] = ground_truth_traj["gt_trajectory_x"]
-    ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
-    trajectories = agent_loader.focal_predictions + [ground_truth_traj]
-
-    agent_locations = CartesianCollection(None)
-    positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep] for p in trajectories])
-
-    # At the end of predicted trajectory we repeat transition velocity
-    timestep = min(timestep, scenario_length - 1)
-    next_positions = np.vstack([np.array([p["x_traj"], p["y_traj"]])[:, timestep+1] for p in trajectories])
-    transitions=np.hstack((next_positions - positions, np.zeros((len(trajectories), 1))))
-
-    # Update at trajectory location and transition
-    agent_locations.append_with_default(
-        coordinates=positions,
-        value=0.0,
-        transitions=transitions,
-    )
-
-    # TODO make this work:
-    # promis = ProMis(star_map, logic, prod(resolution))
-    # promis.initialize(evaluation_points=raster, interpolation_method="nearest")
-
-    # Write new data via StaR Map
-    # for relation in star_map.relation_and_location_types:
-    #     if relation in omit_relations:
-    #         continue
-    #     for location_type in star_map.relation_and_location_types[relation]:
-    #         star_map.update(relation, location_type, agent_locations, 10, interpolation_method="nearest")
+    # Keep only relations that have at least one location type populated
+    all_relations = {
+        relation_type: location_types
+        for relation_type, location_types in all_relations.items()
+        if location_types
+    }
 
     n_rows = len(all_relations)
     n_cols = len(all_location_types)
@@ -489,12 +497,6 @@ def show_all_relations(
         for j, location_type in enumerate(all_location_types):
             ax = axes[i, j]
 
-            plot_scenario_roadlayout(static_map_loader.av2_map, ax=ax)
-            plot_predicted_others(agent_loader, ax=ax)
-            ax.set_aspect(1)
-            ax.set_xlim(xmin, xmax)
-            ax.set_ylim(ymin, ymax)
-
             if j == 0:
                 ax.set_ylabel(relation_type)
             if i == 0:
@@ -510,13 +512,40 @@ def show_all_relations(
                     m = ax.collections[-1]
                 if i not in row_mappables and m is not None:
                     row_mappables[i] = m
-            else:
+
+            plot_scenario_roadlayout(static_map_loader.av2_map, ax=ax)
+            plot_predicted_others(agent_loader, ax=ax)
+            ax.set_aspect(1)
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(ymin, ymax)
+
+            if location_type not in location_types:
                 ax.set_xticks([])
                 ax.set_yticks([])
                 sns.despine(ax=ax, left=True, bottom=True, right=True, top=True)
 
     for i, m in row_mappables.items():
         fig.colorbar(m, ax=axes[i, :].tolist(), location="right")
+
+    plt.show()
+    plt.clf()
+
+    # Plot the landscape from ProMis at the captured timestep on its own figure.
+    fig_landscape, ax_landscape = plt.subplots(figsize=(6, 6))
+    plot_scenario_roadlayout(static_map_loader.av2_map, ax=ax_landscape)
+    plot_predicted_others(agent_loader, ax=ax_landscape)
+    ax_landscape.set_aspect(1)
+    ax_landscape.set_xlim(xmin, xmax)
+    ax_landscape.set_ylim(ymin, ymax)
+    ax_landscape.set_title(f"Landscape at timestep {target_timestep}")
+    m_landscape = landscape.scatter(
+        ax=ax_landscape, alpha=alpha, value_index=value_index,
+        zoom=zoom, plot_basemap=plot_basemap,
+    )
+    if m_landscape is None and ax_landscape.collections:
+        m_landscape = ax_landscape.collections[-1]
+    if m_landscape is not None:
+        fig_landscape.colorbar(m_landscape, ax=ax_landscape, location="right")
 
     plt.show()
     plt.clf()
