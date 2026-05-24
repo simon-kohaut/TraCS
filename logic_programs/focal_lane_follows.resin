@@ -1,0 +1,7 @@
+distance(focal_lane) <- source("/star_map/distance/focal_lane", Density).
+follows(focal_lane) <- source("/star_map/follows/focal_lane", Probability).
+
+landscape if distance(focal_lane) > 100.
+landscape if follows(focal_lane).
+
+landscape -> target("/landscape").

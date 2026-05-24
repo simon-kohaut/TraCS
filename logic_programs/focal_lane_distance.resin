@@ -1,0 +1,6 @@
+distance(focal_lane) <- source("/star_map/distance/focal_lane", Density).
+
+landscape if distance(focal_lane) > 100.
+landscape if distance(focal_lane) < 1.
+
+landscape -> target("/landscape").

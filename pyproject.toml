@@ -34,6 +34,7 @@ dependencies = [
     "nflows",
     "torch",
     "pandas[performance]",
+    "papermill",
 ]
 
 [project.scripts]

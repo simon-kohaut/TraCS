@@ -17,11 +17,11 @@
 
 	"runArgs": [
 		"--add-host=host.docker.internal:host-gateway",  // Needed for accessing self-hosted LLM servers
+        "--device", "nvidia.com/gpu=5",
 		"--shm-size", "200G",
-        // "--gpus", "\"device=03\"",
-		"--memory=400g",
-		"--memory-swap=400g",
-		"--cpus=128"
+		"--memory=600g",
+		"--memory-swap=600g",
+		"--cpus=200"
 	],
 
 	"customizations": {
