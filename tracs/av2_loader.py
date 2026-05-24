@@ -188,6 +188,9 @@ class AV2StaticMapLoader(SpatialLoader):
         if self.focal_starting_location is None:
             return
 
+        # TODO also use the direction of the lane segments to filter out lanes
+        # that are close but not in the right direction of travel for the focal agent
+
         # Find the lane centerline closest to the focal starting location
         closest_centerline = None
         min_dist = float("inf")

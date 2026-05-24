@@ -24,7 +24,9 @@ tracs_logic = """
 distance(vehicle) <- source("/star_map/distance/vehicle", Density).
 speed <- source("/sensors/speed", Number).
 
-safe if vehicle(V) and distance(V) > 10.
+unsafe if vehicle(V) and distance(V) < 10.
+safe if not unsafe.
+
 landscape if safe and speed < 50.
 
 landscape -> target("/landscape").
@@ -89,7 +91,7 @@ class ResumableParquetSink:
 
 
 def main(args) -> None:
-    submission_file = args.data_root / "av2_backbone_outputs" / args.backbone / "submission.parquet"
+    submission_file = args.data_root / "av2_backbone_outputs" / args.backbone / f"submission_{args.split}.parquet"
     final_path: Path = args.output_dir / args.backbone / f"{args.split}.parquet"
     final_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -125,7 +127,7 @@ def main(args) -> None:
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--data_root", type=Path, default=Path("data"))
-    parser.add_argument("--split", type=str, default="test")
+    parser.add_argument("--split", type=str, default="val")
     parser.add_argument("--backbone", type=str, default="DeMo")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--output_dir", type=Path,

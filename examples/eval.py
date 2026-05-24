@@ -18,7 +18,7 @@ from promis import StaRMap, ProMis
 from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection
 
 # TraCS
-from tracs.av2_loader import CITY_NAME_MAP, AV2StaticMapLoader, AV2AgentLoader
+from tracs.av2_loader import CITY_NAME_MAP, AV2StaticMapLoader, AV2AgentLoader, load_focal_gt_trajectory
 
 
 def add_basemap(ax, tile_img, xmin, xmax, ymin, ymax, alpha=0.5):
@@ -235,11 +235,8 @@ def tracs_rate_scenario(
         acceleration_writer = None
 
     # Get ground truth trajectory and append to predictions for rating
-    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
-                                   filters=[("scenario_id", "==", scenario_id)])
-    ground_truth_traj = ground_truth.iloc[0]
-    ground_truth_traj["x_traj"] = ground_truth_traj["gt_trajectory_x"]
-    ground_truth_traj["y_traj"] = ground_truth_traj["gt_trajectory_y"]
+    gt_x, gt_y = load_focal_gt_trajectory(data_root, split, scenario_id)
+    ground_truth_traj = {"x_traj": gt_x, "y_traj": gt_y}
     trajectories = agent_loader.focal_predictions + [ground_truth_traj]
 
     # Score of TraCS alone
@@ -280,9 +277,7 @@ def show_comparison_study(scored_predictions, gt_score, data_root: Path, predict
 
     # Load scneario
     av2_map = ArgoverseStaticMap.from_json(data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json")
-    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
-                                   filters=[("scenario_id", "==", scenario_id)])
-    grount_truth_traj = ground_truth.iloc[0]
+    gt_x, gt_y = load_focal_gt_trajectory(data_root, split, scenario_id)
 
     # Get normalized (scores for better viewing)
     tracs_scores_vals = np.concatenate(scored_predictions["tracs_pointwise_scores"].values)
@@ -356,7 +351,7 @@ def show_comparison_study(scored_predictions, gt_score, data_root: Path, predict
         )
 
         for i in range(5):
-            axes[i, traj].plot(grount_truth_traj["gt_trajectory_x"], grount_truth_traj["gt_trajectory_y"], c="black")
+            axes[i, traj].plot(gt_x, gt_y, c="black")
 
     # Add basemap tiles (fetch once; all axes share the same limits; zorder=0 keeps it behind)
     scenario_df = pd.read_parquet(data_root / "av2" / split / scenario_id / f"scenario_{scenario_id}.parquet")
@@ -553,15 +548,13 @@ def show_all_relations(
     plt.clf()
 
 
-def compute_argoverse2_metrics(scored_predictions, data_root, scenario_id):
+def compute_argoverse2_metrics(scored_predictions, data_root, split, scenario_id):
     # Backbone, TraCS alone, Backbone & TraCS
     methods = ["backbone_trajectory_score", "tracs_trajectory_score", "tracs_backbone_independent_op", "tracs_backbone_linear_op"]
 
     # Get ground truth trajectory for comparison
-    ground_truth = pd.read_parquet(data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
-                                   filters=[("scenario_id", "==", scenario_id)])
-    gt_track = ground_truth.iloc[0]
-    gt_track = np.array([gt_track["gt_trajectory_x"], gt_track["gt_trajectory_y"]]).T
+    gt_x, gt_y = load_focal_gt_trajectory(data_root, split, scenario_id)
+    gt_track = np.array([gt_x, gt_y]).T
 
     predicted_tracks = np.moveaxis(
         np.array(

@@ -49,9 +49,16 @@ data/
 │   └── av2_mf_focal_test_annotations.parquet
 └── av2_backbone_outputs/
     ├── DeMo/
-    │   ├── submission.parquet
-    │   └── metrics.parquet
-    └── ...
+    │   ├── submission_test.parquet
+    │   ├── submission_val.parquet
+    │   ├── test_embeddings.parquet
+    │   ├── val_embeddings.parquet
+    │   ├── metrics.parquet
+    │   └── scores.txt
+    ├── Polaris/
+    │   └── ...
+    └── QCNet/
+        └── ...
 ```
 
 ## Usage
