@@ -197,6 +197,7 @@ def tracs_rate_scenario(
     static_map_loader = AV2StaticMapLoader(
         path=data_root / "av2" / split / scenario_id / f"log_map_archive_{scenario_id}.json",
         focal_starting_location=agent_loader.focal_starting_location,
+        focal_starting_speed=agent_loader.focal_starting_speed,
     )
     static_map = static_map_loader.to_cartesian_map()
 

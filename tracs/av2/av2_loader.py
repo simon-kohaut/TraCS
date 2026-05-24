@@ -96,6 +96,7 @@ class AV2StaticMapLoader(SpatialLoader):
             If provided, data is loaded upon initialization. Defaults to None.
         focal_starting_location: An optional CartesianLocation representing the starting location of the focal agent.
             Used for extracting the "focal_lane" feature, which includes all lane segments connected to the lane segment closest to this location.
+        focal_starting_speed: An optional 2D numpy array [vx, vy] representing the estimated speed of the focal agent at the start of the scenario.
         threshold_focal_lane: Determines whether an agent is considered to be on the focal lane. Distance to the centerline in meters.
         max_focal_lane_hops: Maximum number of lane-graph hops to explore from the focal lane in each direction
             (forward via successors and backward via predecessors). Use ``math.inf`` to disable the limit.
@@ -106,6 +107,7 @@ class AV2StaticMapLoader(SpatialLoader):
         path: str | Path,
         feature_description: dict[str, str | list[str]] | None = FEATURE_DESCRIPTION,
         focal_starting_location: CartesianLocation | None = None,
+        focal_starting_speed: np.ndarray | None = None,
         threshold_focal_lane: float = 1.0,
         max_focal_lane_hops: float = math.inf,
     ):
@@ -116,6 +118,7 @@ class AV2StaticMapLoader(SpatialLoader):
         self.av2_map = ArgoverseStaticMap.from_json(self.path)
         self.origin = None
         self.focal_starting_location = focal_starting_location
+        self.focal_starting_speed = focal_starting_speed
         self.threshold_focal_lane = threshold_focal_lane
         self.max_focal_lane_hops = max_focal_lane_hops
 
@@ -506,3 +509,11 @@ class AV2AgentLoader(SpatialLoader):
         x = state["x_traj"][0].item()
         y = state["y_traj"][0].item()
         return CartesianLocation(east=x, north=y, name=self.scenario_id, location_type="focal_agent_start")
+
+    @cached_property
+    def focal_starting_speed(self) -> np.ndarray:
+        """Return the estimated 2D speed vector [vx, vy] at the start of the scenario."""
+        state = self.focal_predictions[0]
+        x_traj = state["x_traj"][:10]
+        y_traj = state["y_traj"][:10]
+        return np.array([np.diff(x_traj).mean(), np.diff(y_traj).mean()])
