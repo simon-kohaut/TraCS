@@ -98,6 +98,7 @@ class AV2StaticMapLoader(SpatialLoader):
             Used for extracting the "focal_lane" feature, which includes all lane segments connected to the lane segment closest to this location.
         focal_starting_speed: An optional 2D numpy array [vx, vy] representing the estimated speed of the focal agent at the start of the scenario.
         threshold_focal_lane: Determines whether an agent is considered to be on the focal lane. Distance to the centerline in meters.
+        threshold_focal_lane_heading: Maximum allowed heading deviation in degrees between the focal agent's starting speed and a lane centerline's direction.
         max_focal_lane_hops: Maximum number of lane-graph hops to explore from the focal lane in each direction
             (forward via successors and backward via predecessors). Use ``math.inf`` to disable the limit.
     """
@@ -108,7 +109,8 @@ class AV2StaticMapLoader(SpatialLoader):
         feature_description: dict[str, str | list[str]] | None = FEATURE_DESCRIPTION,
         focal_starting_location: CartesianLocation | None = None,
         focal_starting_speed: np.ndarray | None = None,
-        threshold_focal_lane: float = 1.0,
+        threshold_focal_lane: float = 1.5,
+        threshold_focal_lane_heading: float = 30.0,
         max_focal_lane_hops: float = math.inf,
     ):
         self.path = Path(path)
@@ -120,6 +122,7 @@ class AV2StaticMapLoader(SpatialLoader):
         self.focal_starting_location = focal_starting_location
         self.focal_starting_speed = focal_starting_speed
         self.threshold_focal_lane = threshold_focal_lane
+        self.threshold_focal_lane_heading = threshold_focal_lane_heading
         self.max_focal_lane_hops = max_focal_lane_hops
 
         if feature_description is not None:
@@ -191,13 +194,31 @@ class AV2StaticMapLoader(SpatialLoader):
         if self.focal_starting_location is None:
             return
 
-        # TODO also use the direction of the lane segments to filter out lanes
-        # that are close but not in the right direction of travel for the focal agent
+        # Filter by heading: keep only centerlines whose closest segment direction
+        # deviates at most threshold_focal_lane_heading° from the focal agent's starting heading.
+        speed_norm = 0.0 if self.focal_starting_speed is None else np.linalg.norm(self.focal_starting_speed)
+        if speed_norm >= 0.1:
+            candidates = []
+            loc = self.focal_starting_location.to_numpy().flatten()
+            for centerline in lane_centerlines:
+                pts = centerline.to_numpy()
+                seg_dirs = np.diff(pts, axis=0)
+                midpoints = (pts[:-1] + pts[1:]) / 2
+                closest_seg = np.argmin(np.linalg.norm(midpoints - loc, axis=1))
+                lane_dir = seg_dirs[closest_seg]
+                dir_norm = np.linalg.norm(lane_dir)
+                if dir_norm < 1e-3:
+                    continue
+                cosine = np.dot(lane_dir, self.focal_starting_speed) / (dir_norm * speed_norm)
+                if cosine >= np.cos(np.radians(self.threshold_focal_lane_heading)):
+                    candidates.append(centerline)
+        else:
+            candidates = lane_centerlines
 
         # Find the lane centerline closest to the focal starting location
         closest_centerline = None
         min_dist = float("inf")
-        for centerline in lane_centerlines:
+        for centerline in candidates:
             dist = centerline.distance(self.focal_starting_location)
             if dist < min_dist:
                 min_dist = dist
