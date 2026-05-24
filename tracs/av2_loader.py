@@ -369,7 +369,7 @@ class AV2AgentLoader(SpatialLoader):
         # else:
         #     print(f"[moving agents] n=0/{len(self.agents)}")
 
-        self.agents = []
+        # self.agents = []
 
         self._build_features()
 
