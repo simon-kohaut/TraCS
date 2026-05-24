@@ -218,7 +218,7 @@ def tracs_rate_scenario(
         logic=augmented_logic,
     )
 
-    promis = ProMis(star_map, augmented_logic, 7, verbose=False)
+    promis = ProMis(star_map, augmented_logic, 7, verbose=False, max_models=1_000_000)
     promis.initialize(evaluation_points=raster, interpolation_method="nearest")
 
     if 'source("/sensors/speed"' in augmented_logic:
