@@ -7,6 +7,7 @@ from math import prod
 # Third Party
 import contextily as ctx
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 import numpy as np
 import seaborn as sns
 import pandas as pd
@@ -21,13 +22,13 @@ from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection
 from tracs.av2_loader import CITY_NAME_MAP, AV2StaticMapLoader, AV2AgentLoader, load_focal_gt_trajectory
 
 
-def add_basemap(ax, tile_img, xmin, xmax, ymin, ymax, alpha=0.5):
+def add_basemap(ax: Axes, tile_img: np.ndarray, xmin: float, xmax: float, ymin: float, ymax: float, alpha: float = 0.5) -> None:
     """Overlay a pre-fetched tile image onto an AV2 city-coordinate axes."""
     ax.imshow(tile_img, extent=[xmin, xmax, ymin, ymax],
               origin='upper', aspect='auto', alpha=alpha, zorder=0)
 
 
-def fetch_basemap_tile(city_name, xmin, xmax, ymin, ymax, zoom=18, source=None):
+def fetch_basemap_tile(city_name: Any, xmin: float, xmax: float, ymin: float, ymax: float, zoom: int | str = 18, source: Any | None = None) -> np.ndarray:
     """Fetch a tile image for the given city-coordinate bounding box.
 
     Args:
@@ -51,7 +52,7 @@ def fetch_basemap_tile(city_name, xmin, xmax, ymin, ymax, zoom=18, source=None):
     return img
 
 
-def plot_scenario_roadlayout(av2_map, ax=None):
+def plot_scenario_roadlayout(av2_map: ArgoverseStaticMap, ax: Axes | None = None) -> None:
     if ax is None:
         ax = plt.gca()
 
@@ -72,7 +73,7 @@ def plot_scenario_roadlayout(av2_map, ax=None):
         )
 
 
-def plot_predicted_others(agent_loader, ax=None):
+def plot_predicted_others(agent_loader: AV2AgentLoader, ax: Axes | None = None) -> None:
     if ax is None:
         ax = plt.gca()
 
@@ -90,7 +91,7 @@ def plot_predicted_others(agent_loader, ax=None):
     agent_loader.reset()
 
 
-def tracs_pointwise_to_score(pointwise_scores):
+def tracs_pointwise_to_score(pointwise_scores: np.ndarray) -> float:
     N = len(pointwise_scores)
     return np.exp(np.sum(np.log(np.clip(pointwise_scores, 1e-8, 1.0))) / N)
 
@@ -186,7 +187,7 @@ def tracs_rate_scenario(
     callback_after_timestep: Callable[[int, float, CartesianCollection, ProMis], None]
         # The callback receives the current index, time in seconds, landscape, and promis instance.
         = lambda idx, time, landscape, promis: None,
-):
+) -> tuple[pd.DataFrame, float]:
     """
 
     Notes:
@@ -264,7 +265,7 @@ def tracs_rate_scenario(
     return scored_predictions, tracs_pointwise_to_score(scores[6])
 
 
-def show_comparison_study(scored_predictions, gt_score, data_root: Path, prediction_path: Path, split: str, scenario_id: str, basemap=ctx.providers.Esri.WorldImagery, basemap_alpha=0.8):
+def show_comparison_study(scored_predictions: pd.DataFrame, gt_score: float, data_root: Path, prediction_path: Path, split: str, scenario_id: str, basemap: Any = ctx.providers.Esri.WorldImagery, basemap_alpha: float = 0.8) -> None:
     # Load also other agents (predicted) paths
     agent_loader = AV2AgentLoader(
         prediction_path=prediction_path,
@@ -406,7 +407,7 @@ def show_all_relations(
     zoom: int = 12,
     alpha: float = 0.5,
     plot_basemap: bool = False,
-):
+) -> None:
     # Run the full evaluation pipeline, capturing the StaR Map state at the requested timestep
     # and aborting the loop via an exception so we don't pay for the remaining iterations.
     captured: dict[str, Any] = {}
@@ -548,7 +549,7 @@ def show_all_relations(
     plt.clf()
 
 
-def compute_argoverse2_metrics(scored_predictions, data_root, split, scenario_id):
+def compute_argoverse2_metrics(scored_predictions: pd.DataFrame, data_root: Path, split: str, scenario_id: str) -> pd.DataFrame:
     # Backbone, TraCS alone, Backbone & TraCS
     methods = ["backbone_trajectory_score", "tracs_trajectory_score", "tracs_backbone_independent_op", "tracs_backbone_linear_op"]
 
