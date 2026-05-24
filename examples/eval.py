@@ -98,6 +98,7 @@ def _tracs_rate_all(
     static_map: CartesianMap,
     speed_writer: Any | None = None,
     acceleration_writer: Any | None = None,
+    yaw_rate_writer: Any | None = None,
     scenario_length: int = 60,
     sample_rate: float = 10,  # Argoverse 2 is sampled at 10 Hz
     number_of_random_maps: int = 10,
@@ -110,6 +111,7 @@ def _tracs_rate_all(
     num_timesteps = len(trajectories[0]["x_traj"])
     tracs_scores = np.zeros((len(trajectories), num_timesteps))
     last_speeds = None
+    last_headings = None
     landscape = None
     for timestep in range(0, num_timesteps):
         current_time = timestep / sample_rate
@@ -150,10 +152,20 @@ def _tracs_rate_all(
         acceleration = (speed - last_speeds) / time_in_s  # km/h/s
         last_speeds = speed
 
+        heading = np.arctan2(transitions[:, 1], transitions[:, 0])  # rad
+        if last_headings is None:
+            last_headings = heading  # assume zero yaw_rate at t=0
+        delta_heading = heading - last_headings
+        delta_heading = (delta_heading + np.pi) % (2 * np.pi) - np.pi  # wrap to [-π, π]
+        yaw_rate = delta_heading / time_in_s  # rad/s
+        last_headings = heading
+
         if speed_writer is not None:
             speed_writer.write(speed, current_time)
         if acceleration_writer is not None:
             acceleration_writer.write(acceleration, current_time)
+        if yaw_rate_writer is not None:
+            yaw_rate_writer.write(yaw_rate, current_time)
 
         # Get new inference results and append as tracs scores
         time.sleep(0.01)  # Ensures that all data has already transferred
@@ -186,7 +198,8 @@ def tracs_rate_scenario(
     """
 
     Notes:
-        Speed and acceleration are written if requested as, e.g., `source("/sensors/speed", Number)`.
+        Speed (km/h), acceleration (km/h/s), and yaw_rate (rad/s) are written if requested as,
+        e.g., `source("/sensors/yaw_rate", Number)`.
     """
     # Argoverse 2 scenario loading
     agent_loader = AV2AgentLoader(
@@ -230,6 +243,10 @@ def tracs_rate_scenario(
         acceleration_writer = promis._resin.make_writer_for("acceleration")
     else:
         acceleration_writer = None
+    if 'source("/sensors/yaw_rate"' in augmented_logic:
+        yaw_rate_writer = promis._resin.make_writer_for("yaw_rate")
+    else:
+        yaw_rate_writer = None
 
     # Get ground truth trajectory and append to predictions for rating
     gt_x, gt_y = load_focal_gt_trajectory(data_root, split, scenario_id)
@@ -239,6 +256,7 @@ def tracs_rate_scenario(
     # Score of TraCS alone
     scores = _tracs_rate_all(promis, trajectories, agent_loader, static_map,
                              speed_writer=speed_writer, acceleration_writer=acceleration_writer,
+                             yaw_rate_writer=yaw_rate_writer,
                              scenario_length=scenario_length,
                              callback_after_timestep=callback_after_timestep)
     for i, prediction in enumerate(agent_loader.focal_predictions):

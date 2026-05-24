@@ -31,8 +31,10 @@ def _build_source_preamble(rules: str) -> str:
     # This is overly simplistic but will never miss an occurence
     if "speed" in rules:
         lines.append('speed <- source("/sensors/speed", Number).')
-    if "bearing" in rules:
-        lines.append('bearing <- source("/sensors/bearing", Number).')
+    if "acceleration" in rules:
+        lines.append('acceleration <- source("/sensors/acceleration", Number).')
+    if "yaw_rate" in rules:
+        lines.append('yaw_rate <- source("/sensors/yaw_rate", Number).')
 
     return "\n".join(lines)
 
