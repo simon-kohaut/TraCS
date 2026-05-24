@@ -200,6 +200,7 @@ class AV2StaticMapLoader(SpatialLoader):
         if speed_norm >= 0.1:
             candidates = []
             loc = self.focal_starting_location.to_numpy().flatten()
+            cos_threshold = np.cos(np.radians(self.threshold_focal_lane_heading))
             for centerline in lane_centerlines:
                 pts = centerline.to_numpy()
                 seg_dirs = np.diff(pts, axis=0)
@@ -210,7 +211,7 @@ class AV2StaticMapLoader(SpatialLoader):
                 if dir_norm < 1e-3:
                     continue
                 cosine = np.dot(lane_dir, self.focal_starting_speed) / (dir_norm * speed_norm)
-                if cosine >= np.cos(np.radians(self.threshold_focal_lane_heading)):
+                if cosine >= cos_threshold:
                     candidates.append(centerline)
         else:
             candidates = lane_centerlines

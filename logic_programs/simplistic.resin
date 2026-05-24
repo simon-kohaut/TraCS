@@ -1,0 +1,9 @@
+distance(vehicle) <- source("/star_map/distance/vehicle", Density).
+speed <- source("/sensors/speed", Number).
+
+unsafe if vehicle(V) and distance(V) < 5.
+safe if not unsafe.
+
+landscape if safe and speed < 50.
+
+landscape -> target("/landscape").

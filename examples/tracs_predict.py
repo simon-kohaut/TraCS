@@ -1,5 +1,8 @@
+"""Batch-evaluate TraCS logic programs over an AV2 split with crash-resume support."""
+
 import multiprocessing
 import os
+import random
 from argparse import ArgumentParser
 from functools import partial
 from pathlib import Path
@@ -18,19 +21,6 @@ class IterationsPerSecondColumn(ProgressColumn):
         if speed is None:
             return Text("? it/s", style="progress.data.speed")
         return Text(f"{speed:.2f} it/s", style="progress.data.speed")
-
-
-tracs_logic = """
-distance(vehicle) <- source("/star_map/distance/vehicle", Density).
-speed <- source("/sensors/speed", Number).
-
-unsafe if vehicle(V) and distance(V) < 10.
-safe if not unsafe.
-
-landscape if safe and speed < 50.
-
-landscape -> target("/landscape").
-"""
 
 
 def process_scenario(
@@ -91,30 +81,51 @@ class ResumableParquetSink:
 
 
 def main(args) -> None:
-    submission_file = args.data_root / "av2_backbone_outputs" / args.backbone / f"submission_{args.split}.parquet"
-    final_path: Path = args.output_dir / args.backbone / f"{args.split}.parquet"
+    submission_file = (
+        args.data_root
+        / "av2_backbone_outputs"
+        / args.backbone
+        / f"submission_{args.split}.parquet"
+    )
+    final_path: Path = args.output_dir / args.logic.stem / args.backbone / f"{args.split}.parquet"
     final_path.parent.mkdir(parents=True, exist_ok=True)
 
-    kwargs = dict(logic=tracs_logic, prediction_path=submission_file,
-                  data_root=args.data_root, split=args.split)
+    kwargs = dict(
+        logic=args.logic.read_text(),
+        prediction_path=submission_file,
+        data_root=args.data_root,
+        split=args.split,
+    )
 
     sink = ResumableParquetSink(final_path, flush_every=args.flush_every)
-    all_ids = [file.stem for file in (args.data_root / "av2" / args.split).iterdir()]
+    all_ids = sorted(
+        file.stem for file in (args.data_root / "av2" / args.split).iterdir()
+    )
+    if args.subsample < 1.0:
+        k = max(1, round(len(all_ids) * args.subsample))
+        all_ids = random.Random(123).sample(all_ids, k)
     done = sink.done_ids()
     scenario_ids = [sid for sid in all_ids if sid not in done]
 
     def results_iter():
         if args.workers is not None and args.workers > 1:
             with multiprocessing.Pool(args.workers) as p:
-                yield from p.imap_unordered(partial(process_scenario, **kwargs), scenario_ids)
+                yield from p.imap_unordered(
+                    partial(process_scenario, **kwargs), scenario_ids
+                )
         else:
             for sid in scenario_ids:
                 yield process_scenario(sid, **kwargs)
 
     try:
-        with Progress(*Progress.get_default_columns(), MofNCompleteColumn(), IterationsPerSecondColumn()) as progress:
-            task = progress.add_task("Processing scenarios...",
-                                    total=len(all_ids), completed=len(done))
+        with Progress(
+            *Progress.get_default_columns(),
+            MofNCompleteColumn(),
+            IterationsPerSecondColumn(),
+        ) as progress:
+            task = progress.add_task(
+                "Processing scenarios...", total=len(all_ids), completed=len(done)
+            )
             for df in results_iter():
                 sink.write(df)
                 progress.advance(task)
@@ -127,15 +138,33 @@ def main(args) -> None:
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--data_root", type=Path, default=Path("data"))
-    parser.add_argument("--split", type=str, default="val")
-    parser.add_argument("--backbone", type=str, default="DeMo")
-    parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--output_dir", type=Path,
-                        default=Path("data") / "tracs_predictions" / "simple-logic",
-                        help="Parent directory for outputs; the actual file is <output_dir>/<backbone>/<split>.parquet.")
-    parser.add_argument("--flush_every", type=int, default=500,
-                        help="Re-seal the parquet file every N scenarios for crash-resume safety.")
-    # TODO consume JSON config file for logic
+    parser.add_argument("--split", type=str, default="val", help="AV2 split to evaluate (train/val/test).")
+    parser.add_argument("--backbone", type=str, default="DeMo", help="Backbone name; used to locate the submission parquet and as a path component in the output.")
+    parser.add_argument("--workers", type=int, default=8, help="Number of parallel worker processes.")
+    parser.add_argument(
+        "--output_dir",
+        type=Path,
+        default=Path("data") / "tracs_predictions",
+        help="Parent directory for outputs; the actual file is <output_dir>/<logic>/<backbone>/<split>.parquet.",
+    )
+    parser.add_argument(
+        "--flush_every",
+        type=int,
+        default=500,
+        help="Re-seal the parquet file every N scenarios for crash-resume safety.",
+    )
+    parser.add_argument(
+        "--subsample",
+        type=float,
+        default=1.0,
+        help="Fraction of scenarios to evaluate (0 < subsample <= 1). Uses a fixed seed for reproducibility.",
+    )
+    parser.add_argument(
+        "--logic",
+        type=Path,
+        default=Path("logic_programs/simplistic.resin"),
+        help="Path to the Resin logic program to evaluate. The stem is appended to --output_dir, so different logic files land in separate subdirectories automatically.",
+    )
     args = parser.parse_args()
 
     main(args)
