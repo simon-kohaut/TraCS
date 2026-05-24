@@ -9,8 +9,9 @@
 #
 
 # Standard Library
+import math
 from functools import cached_property
-from collections import defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 
 # Third Party
@@ -50,6 +51,25 @@ def city_to_origin(city_name: str) -> PolarLocation:
     return PolarLocation(longitude=lon, latitude=lat)
 
 
+def load_focal_gt_trajectory(data_root: Path, split: str, scenario_id: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return the focal track's ground-truth future trajectory as (x, y) numpy arrays.
+
+    For test split the GT lives in the separate annotations parquet; for val/train it
+    lives inside the scenario parquet as rows where `observed` is False.
+    """
+    if split == "test":
+        ann = pd.read_parquet(
+            data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
+            filters=[("scenario_id", "==", scenario_id)],
+        )
+        row = ann.iloc[0]
+        return np.asarray(row["gt_trajectory_x"]), np.asarray(row["gt_trajectory_y"])
+    scenario = pd.read_parquet(data_root / "av2" / split / scenario_id / f"scenario_{scenario_id}.parquet")
+    focal_id = scenario["focal_track_id"].iloc[0]
+    future = scenario[(scenario["track_id"] == focal_id) & (~scenario["observed"])].sort_values("timestep")
+    return future["position_x"].to_numpy(), future["position_y"].to_numpy()
+
+
 class AV2StaticMapLoader(SpatialLoader):
     """A loader for spatial data from the Argoverse 2 (AV2) dataset.
 
@@ -77,6 +97,8 @@ class AV2StaticMapLoader(SpatialLoader):
         focal_starting_location: An optional CartesianLocation representing the starting location of the focal agent.
             Used for extracting the "focal_lane" feature, which includes all lane segments connected to the lane segment closest to this location.
         threshold_focal_lane: Determines whether an agent is considered to be on the focal lane. Distance to the centerline in meters.
+        max_focal_lane_hops: Maximum number of lane-graph hops to explore from the focal lane in each direction
+            (forward via successors and backward via predecessors). Use ``math.inf`` to disable the limit.
     """
 
     def __init__(
@@ -85,6 +107,7 @@ class AV2StaticMapLoader(SpatialLoader):
         feature_description: dict[str, str | list[str]] | None = FEATURE_DESCRIPTION,
         focal_starting_location: CartesianLocation | None = None,
         threshold_focal_lane: float = 1.0,
+        max_focal_lane_hops: float = math.inf,
     ):
         self.path = Path(path)
         self.features = defaultdict(list, {})
@@ -94,6 +117,7 @@ class AV2StaticMapLoader(SpatialLoader):
         self.origin = None
         self.focal_starting_location = focal_starting_location
         self.threshold_focal_lane = threshold_focal_lane
+        self.max_focal_lane_hops = max_focal_lane_hops
 
         if feature_description is not None:
             self.load(feature_description)
@@ -187,16 +211,18 @@ class AV2StaticMapLoader(SpatialLoader):
             for succ_id in successors[ls.id]:
                 predecessors[succ_id].append(ls.id)
 
-        # Find all lane segments connected to the focal lane (forward and backward)
-        connected_lane_ids: set[int] = set()
-        to_visit: list[int] = [focal_id]
-        while to_visit:
-            current_id = to_visit.pop()
-            if current_id in connected_lane_ids:
-                continue
-            connected_lane_ids.add(current_id)
-            to_visit.extend(successors[current_id])
-            to_visit.extend(predecessors[current_id])
+        # BFS up to max_focal_lane_hops in each direction from the focal lane
+        connected_lane_ids: set[int] = {focal_id}
+        for neighbors in (successors, predecessors):
+            queue: deque[tuple[int, int]] = deque([(focal_id, 0)])
+            while queue:
+                current_id, hops = queue.popleft()
+                if hops >= self.max_focal_lane_hops:
+                    continue
+                for neighbor_id in neighbors[current_id]:
+                    if neighbor_id not in connected_lane_ids:
+                        connected_lane_ids.add(neighbor_id)
+                        queue.append((neighbor_id, hops + 1))
 
         # Add the connected lane segments to the features under "focal_lane"
         self.features["focal_lane"].extend([
