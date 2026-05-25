@@ -1,9 +1,11 @@
 """Batch-evaluate TraCS logic programs over an AV2 split with crash-resume support."""
 
-import multiprocessing
 import os
 import random
+import signal
+import threading
 from argparse import ArgumentParser
+from concurrent.futures import BrokenExecutor, ProcessPoolExecutor, as_completed
 from functools import partial
 from pathlib import Path
 
@@ -29,16 +31,30 @@ def process_scenario(
     prediction_path: Path,
     data_root: Path,
     split: str,
+    task_timeout: int = 0,
 ):
-    scored_predictions, _ = tracs_rate_scenario(
-        scenario_id,
-        logic=logic,
-        prediction_path=prediction_path,
-        data_root=data_root,
-        split=split,
-    )
-    scored_predictions.insert(0, "scenario_id", scenario_id)
-    return scored_predictions
+    if task_timeout > 0:
+        def _handler(signum, frame):
+            raise TimeoutError(f"scenario {scenario_id} exceeded {task_timeout}s")
+        old_handler = signal.signal(signal.SIGALRM, _handler)
+        signal.alarm(task_timeout)
+    try:
+        scored_predictions, _ = tracs_rate_scenario(
+            scenario_id,
+            logic=logic,
+            prediction_path=prediction_path,
+            data_root=data_root,
+            split=split,
+        )
+        scored_predictions.insert(0, "scenario_id", scenario_id)
+        return scored_predictions
+    except TimeoutError as e:
+        print(f"[warn] {e}, skipping (will retry on resume)", flush=True)
+        return None
+    finally:
+        if task_timeout > 0:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
 
 
 class ResumableParquetSink:
@@ -95,6 +111,7 @@ def main(args) -> None:
         prediction_path=submission_file,
         data_root=args.data_root,
         split=args.split,
+        task_timeout=args.task_timeout,
     )
 
     sink = ResumableParquetSink(final_path, flush_every=args.flush_every)
@@ -109,13 +126,41 @@ def main(args) -> None:
 
     def results_iter():
         if args.workers is not None and args.workers > 1:
-            with multiprocessing.Pool(args.workers) as p:
-                yield from p.imap_unordered(
-                    partial(process_scenario, **kwargs), scenario_ids
-                )
+            executor = ProcessPoolExecutor(
+                max_workers=args.workers,
+                max_tasks_per_child=args.max_tasks_per_child or None,
+            )
+            futures = {
+                executor.submit(partial(process_scenario, **kwargs), sid): sid
+                for sid in scenario_ids
+            }
+            try:
+                for fut in as_completed(futures):
+                    sid = futures[fut]
+                    try:
+                        result = fut.result()
+                        if result is not None:
+                            yield result
+                    except BrokenExecutor as exc:
+                        print(
+                            f"\n[warn] worker pool broke (last known scenario: {sid}),"
+                            f" remaining work will retry on resume: {exc}",
+                            flush=True,
+                        )
+                        break
+                    except Exception as exc:
+                        print(
+                            f"\n[warn] {sid} failed ({type(exc).__name__}: {exc}),"
+                            " skipping (will retry on resume)",
+                            flush=True,
+                        )
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
         else:
             for sid in scenario_ids:
-                yield process_scenario(sid, **kwargs)
+                result = process_scenario(sid, **kwargs)
+                if result is not None:
+                    yield result
 
     try:
         with Progress(
@@ -158,6 +203,19 @@ if __name__ == "__main__":
         type=float,
         default=1.0,
         help="Fraction of scenarios to evaluate (0 < subsample <= 1). Uses a fixed seed for reproducibility.",
+    )
+    parser.add_argument(
+        "--task-timeout",
+        type=int,
+        default=60,
+        help="Per-scenario timeout in seconds for worker processes (0 = no timeout). Timed-out scenarios are skipped and retried on the next resume.",
+    )
+    parser.add_argument(
+        "--max-tasks-per-child",
+        type=int,
+        default=100,
+        dest="max_tasks_per_child",
+        help="Recycle each worker process after this many tasks to release accumulated Resin IPC threads and pipe descriptors (0 = never recycle).",
     )
     parser.add_argument(
         "--logic",

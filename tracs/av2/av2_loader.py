@@ -226,7 +226,7 @@ class AV2StaticMapLoader(SpatialLoader):
                 closest_centerline = centerline
 
         if closest_centerline is None or min_dist > self.threshold_focal_lane:
-            print(f"No suitable focal lane found within {self.threshold_focal_lane}m.")
+            # print(f"No suitable focal lane found within {self.threshold_focal_lane}m.")
             return
 
         focal_id = int(closest_centerline.name)
@@ -403,7 +403,7 @@ class AV2AgentLoader(SpatialLoader):
         if self.threshold_topk is not None:
             included = [ag for ag in self.agents if ag["included_in_features"]]
             if len(included) > self.threshold_topk:
-                print(f"Number of included agents ({len(included)}) exceeds threshold_topk ({self.threshold_topk}). Applying top-k filtering based on min_dist_to_focal.")
+                # print(f"Number of included agents ({len(included)}) exceeds threshold_topk ({self.threshold_topk}). Applying top-k filtering based on min_dist_to_focal.")
                 included.sort(key=lambda ag: ag["min_dist_to_focal"])
                 for ag in included[self.threshold_topk:]:
                     ag["included_in_features"] = False

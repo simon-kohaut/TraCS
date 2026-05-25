@@ -1,0 +1,11 @@
+distance(vehicle) <- source("/star_map/distance/vehicle", Density).
+approaches(vehicle) <- source("/star_map/approaches/vehicle", Probability).
+acceleration <- source("/sensors/acceleration", Number).
+
+# Dont drive into leading vehicles
+safe_following if distance(vehicle) > 5.
+imminent_rear_end if distance(vehicle) < 2 and approaches(vehicle) and acceleration > 0.
+
+landscape if safe_following and not imminent_rear_end.
+
+landscape -> target("/landscape").
