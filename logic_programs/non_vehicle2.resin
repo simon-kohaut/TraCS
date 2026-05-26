@@ -1,0 +1,41 @@
+distance(bike_lane) <- source("/star_map/distance/bike_lane", Density).
+distance(crossing) <- source("/star_map/distance/crossing", Density).
+over(drivable_area) <- source("/star_map/over/drivable_area", Probability).
+over(bike_lane) <- source("/star_map/over/bike_lane", Probability).
+over(bus_lane) <- source("/star_map/over/bus_lane", Probability).
+speed <- source("/sensors/speed", Number).
+acceleration <- source("/sensors/acceleration", Number).
+yaw_rate <- source("/sensors/yaw_rate", Number).
+
+# Pedestrian expectations: low speed, prefers sidewalks and crossings, can be anywhere
+pedestrian_implausible_speed if is_pedestrian and speed > 5.
+pedestrian_jaywalk if is_pedestrian and over(drivable_area) and distance(crossing) > 5.
+pedestrian_ok if not is_pedestrian.
+pedestrian_ok if not pedestrian_implausible_speed and not pedestrian_jaywalk.
+
+# Cyclist expectations: bike lanes or road shoulder, moderate speed
+cyclist_implausible_speed if is_cyclist and speed > 25.
+cyclist_wrong_lane if distance(bike_lane) < 10 and not over(bike_lane).
+cyclist_ok if not is_cyclist.
+cyclist_ok if not cyclist_implausible_speed and not cyclist_wrong_lane.
+
+# Motorcyclist expectations: like vehicle but tighter turning envelope allowed
+motorcyclist_off_road if is_motorcyclist and not over(drivable_area).
+motorcyclist_implausible_speed if is_motorcyclist and speed > 50.
+motorcyclist_ok if not is_motorcyclist.
+motorcyclist_ok if not motorcyclist_off_road and not motorcyclist_implausible_speed.
+
+# Bus expectations: stricter kinematics, no tight turns
+bus_implausible_turn if is_bus and yaw_rate > 0.4.
+bus_implausible_accel if is_bus and acceleration > 5.0.
+bus_ok if not is_bus.
+bus_ok if not bus_implausible_turn and not bus_implausible_accel.
+
+# Some lanes are exclusive
+violates_lane_type if not is_cyclist and over(bike_lane).
+violates_lane_type if not is_bus and over(bus_lane).
+lane_type_ok if not violates_lane_type.
+
+landscape if pedestrian_ok and cyclist_ok and motorcyclist_ok and bus_ok and lane_type_ok.
+
+landscape -> target("/landscape").
