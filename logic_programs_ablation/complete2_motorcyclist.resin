@@ -1,0 +1,24 @@
+distance(vehicle) <- source("/star_map/distance/vehicle", Density).
+distance(motorcyclist) <- source("/star_map/distance/motorcyclist", Density).
+distance(bus) <- source("/star_map/distance/bus", Density).
+distance(bus_lane) <- source("/star_map/distance/bus_lane", Density).
+distance(bike_lane) <- source("/star_map/distance/bike_lane", Density).
+distance(crossing) <- source("/star_map/distance/crossing", Density).
+over(drivable_area) <- source("/star_map/over/drivable_area", Probability).
+over(bike_lane) <- source("/star_map/over/bike_lane", Probability).
+over(bus_lane) <- source("/star_map/over/bus_lane", Probability).
+over(intersection) <- source("/star_map/over/intersection", Probability).
+speed <- source("/sensors/speed", Number).
+acceleration <- source("/sensors/acceleration", Number).
+yaw_rate <- source("/sensors/yaw_rate", Number).
+approaches(vehicle) <- source("/star_map/approaches/vehicle", Probability).
+
+# Motorcyclist expectations: like vehicle but tighter turning envelope allowed
+motorcyclist_off_road if is_motorcyclist and not over(drivable_area).
+motorcyclist_implausible_speed if is_motorcyclist and speed > 50.
+motorcyclist_ok if not is_motorcyclist.
+motorcyclist_ok if not motorcyclist_off_road and not motorcyclist_implausible_speed.
+
+landscape if motorcyclist_ok.
+
+landscape -> target("/landscape").
