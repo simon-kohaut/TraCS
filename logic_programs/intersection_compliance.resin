@@ -1,0 +1,22 @@
+over(intersection) <- source("/star_map/over/intersection", Probability).
+approaches(intersection) <- source("/star_map/approaches/intersection", Probability).
+speed <- source("/sensors/speed", Number).
+acceleration <- source("/sensors/acceleration", Number).
+yaw_rate <- source("/sensors/yaw_rate", Number).
+
+# Approaching intersections
+approach_without_deceleration if approaches(intersection) and speed > 8 and acceleration > -0.3.
+approach_with_deceleration if approaches(intersection) and acceleration < -0.5.
+safe_approach if not approaches(intersection).
+safe_approach if approach_without_deceleration and approach_with_deceleration.
+
+# Turning on intersections
+impossible_turn if over(intersection) and yaw_rate > 1.5.
+implausible_speed if over(intersection) and speed > 14.
+plausible_transit if over(intersection) and yaw_rate < 1.2 and speed < 12.
+valid_turn if not over(intersection).
+valid_turn if not impossible_turn and not implausible_speed and plausible_transit.
+
+landscape if safe_approach and valid_turn.
+
+landscape -> target("/landscape").
