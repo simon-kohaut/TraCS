@@ -1,0 +1,1 @@
+Cyclists should not exceed 25 km/h. When a bike lane is within 5 meters, cyclists must use it unless they are at an intersection. The final rule should be called cyclist_ok.

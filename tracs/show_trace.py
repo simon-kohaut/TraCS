@@ -105,12 +105,15 @@ def main() -> None:
     ]
     console.print(Panel(Group(*param_content), title="[bold]Parameters[/bold]", box=box.ROUNDED))
 
+    # print(params["natural_language_rule"].replace("_", "\\_").replace("#", "\\#").replace("\n", "\\\\\n"))  # TODO
+
     for i, record in enumerate(iterations, start=1):
         console.print(_iteration_panel(i, record, n))
 
     if trace["accepted"]:
         console.rule("[green bold]Accepted[/green bold]")
-        console.print(Panel(_program_renderable(trace["full_result"]), box=box.ROUNDED))
+        console.print(Panel(_program_renderable(trace["full_final_program"]), box=box.ROUNDED))
+        # print(trace["full_final_program"])
     else:
         console.rule("[red bold]Not Accepted[/red bold]")
 

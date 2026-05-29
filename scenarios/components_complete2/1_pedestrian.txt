@@ -1,0 +1,1 @@
+Pedestrians should not move faster than 5 km/h. They should only be on the drivable area if they are within 5 meters of a crossing. The final rule should be called pedestrian_ok.

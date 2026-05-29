@@ -10,26 +10,30 @@ The following atoms and predicates can be used in Resin. They will be automatica
 
 Available map feature types are:
 - Road: drivable_area (union of all lanes).
-- Road lanes: vehicle_lane (open to all), bike_lane, bus_lane.
-- Road lane center lines: vehicle_lane_centerline (open to all), bike_lane_centerline, bus_lane_centerline.
+- Road lanes: vehicle_lane (open to all), bus_lane, bike_lane.
+- Road lane center lines: vehicle_lane_centerline (open to all), bus_lane_centerline, bike_lane_centerline.
+- Centerline of the lane of the focal agent: focal_lane (>100 if unknown).
 - Lane markings: solid_line, dashed_line.
-- Special features: intersection, crosswalk.
-- Traffic participants: vehicle, pedestrian, motorcyclist, cyclist, bus.
+- Special features: intersection, crossing.
+- Moving traffic participants: vehicle, bus, cyclist, motorcyclist, pedestrian.
 
 Available predicates, following Shapely semantics, for each feature type "X" are:
-- over(X)
-- distance(X) in meters
-- enters(X) (currently entering X)
-- exits(X) (currently leaving X)
-- intersects(X) (any overlap or touches)
-- crosses(X) (the path passes across X, not along it)
-- follows(X) (the vehicle's current path follows a line-string feature of type X, such as a road)
-- opposes(X) (following the opposite direction)
+- over(X) (boolean)
+- distance(X) (number, in meters)
+- approaches(X) (boolean, the distance to X is decreasing)
+- enters(X) (boolean, currently entering X)
+- exits(X) (boolean, currently leaving X)
+- intersects(X) (boolean, any overlap or touches)
+- crosses(X) (boolean, the path passes across X, not along it)
+- follows(X) (boolean, the vehicle's current path follows a line-string feature of type X, such as a road)
+- opposes(X) (boolean, following the opposite direction)
+- faces(X) (boolean, the vehicle is oriented towards X)
 
-Available values:
-- speed: the current speed of the vehicle in km/h.
-- bearing: the current bearing of the vehicle in degrees (0 to 360, north up).
-- is_car, is_bus, is_motorcycle.
+Available values for the current focal agent state are:
+- speed: the current speed in km/h.
+- acceleration: the current acceleration in (km/h)/s. Negative values indicate deceleration.
+- yaw_rate: the current absolute yaw rate in rad/s.
+- is_vehicle, is_bus, is_motorcyclist, is_cyclist, is_pedestrian.
 
 COMBINING PREDICATES:
 A conjunction/and is written as follows:
@@ -40,10 +44,10 @@ on_special_lane if over(bike_lane).
 on_special_lane if over(bus_lane).
 
 One can also negate rules:
-is_no_car if not is_car.
+is_no_vehicle if not is_vehicle.
 
-Implications can be implemented via implication elimination, i.e. rewriting "a->b" as "not a or b". In Resin, this means writing two separate rules. For example, the implication "if on_crosswalk then be_slow" becomes:
-landscape if not over(crosswalk).
+Implications can be implemented via implication elimination, i.e. rewriting "a->b" as "not a or b". In Resin, this means writing two separate rules. For example, the implication "if over crossing then be_slow" becomes:
+landscape if not over(crossing).
 landscape if speed < 5.0.
 
 The rules always need to end with a "landscape if ..." clause. It is the logic result that captures the semantics of the user-provided natural language description.
@@ -76,8 +80,8 @@ Output:
 
 Natural language: One should be slow at crosswalks.
 Resin code:
-# The implication is implemented as "not intersects(crosswalk) or speed < 5.0"
-landscape if not intersects(crosswalk).
+# The implication is implemented as "not intersects(crossing) or speed < 5.0"
+landscape if not intersects(crossing).
 landscape if speed < 5.0.
 Output:
 {

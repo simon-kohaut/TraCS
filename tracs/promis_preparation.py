@@ -8,8 +8,12 @@ _RELATIONS = {
     "distance": "Density",
     "intersects": "Probability",
     "enters": "Probability",
+    "exits": "Probability",
     "follows": "Probability",
     "opposes": "Probability",
+    "approaches": "Probability",
+    "crosses": "Probability",
+    "faces": "Probability",
 }
 
 

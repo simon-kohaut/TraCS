@@ -222,6 +222,7 @@ def main() -> None:
             console.print(Syntax(full_program, "prolog", theme="monokai", line_numbers=True, word_wrap=True))
         else:
             output_path = Path(args.output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(full_program, encoding="utf-8")
             _write_trace(output_path, args, regulation, iterations, accepted=True, result=program, full_result=full_program, coder_backend=coder_backend, judge_backend=judge_backend)
             console.print(f"  Saved to: [green]{args.output}[/green]")

@@ -83,7 +83,8 @@ def _run_human(
         ))
 
         if judge in it["opinions"]:
-            console.print(f"  [yellow]Warning:[/yellow] Overwriting existing opinion for '{judge}' on iteration {i}.")
+            console.print(f"  [dim]Skipping iteration {i}: already has a '{judge}' opinion.[/dim]")
+            continue
 
         answer = Prompt.ask("  Pass?", choices=["y", "n", "s"], default="s")
 

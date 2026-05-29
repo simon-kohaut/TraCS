@@ -1,0 +1,1 @@
+Vehicles (identified via is_vehicle) should keep more than 5 meters from other vehicles. Do not accelerate toward a vehicle that is closer than 2 meters. The final rule should be called vehicle_ok.

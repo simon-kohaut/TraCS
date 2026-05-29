@@ -17,11 +17,11 @@
 
 	"runArgs": [
 		"--add-host=host.docker.internal:host-gateway",  // Needed for accessing self-hosted LLM servers
-        "--device", "nvidia.com/gpu=5",
+        // "--device", "nvidia.com/gpu=5",
 		"--shm-size", "200G",
 		"--memory=600g",
 		"--memory-swap=600g",
-		"--cpus=200"
+		// "--cpus=200"
 	],
 
 	"customizations": {
@@ -37,7 +37,6 @@
 	},
 
 	"mounts": [
-        // "source=/home/ml-fdivo/repos/TraCS/data,target=/workspaces/data,type=bind,consistency=cached"
     ],
 
 	"postCreateCommand": "bash .devcontainer/postCreate.sh",

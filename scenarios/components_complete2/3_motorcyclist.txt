@@ -1,0 +1,1 @@
+Motorcyclists must stay on the drivable area and must not exceed 50 km/h. The final rule should be called motorcyclist_ok.

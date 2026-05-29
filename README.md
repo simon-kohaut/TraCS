@@ -82,24 +82,24 @@ Then, run the following command to execute a scenario:
 
 ```shell
 tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
-  --coder-backend anthropic --judge-backend anthropic --max-iterations 5 --verbose
+  --coder-backend anthropic --judge-backend anthropic --max-iterations 5
 
 tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
   --coder-backend openai --coder-model gpt-5.4-mini \
   --judge-backend openai --judge-model gpt-5.4-mini \
-  --max-iterations 5 --verbose
+  --max-iterations 5
 
 # Separate backends for coder and judge:
 tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
   --coder-backend local --coder-model Qwen/Qwen3.6-27B \
   --judge-backend anthropic --judge-model claude-opus-4-7 \
-  --max-iterations 5 --verbose
+  --max-iterations 5
 ```
 
 Or run all scenarios sequentially:
 
 ```shell
-bash run/all.sh
+tracs_run_all
 ```
 
 ## Output
@@ -174,6 +174,12 @@ tracs_add_judge output/1_halt_claude-opus-4-7_seed1.json \
   --judge claude-opus-4-7 --backend anthropic
 ```
 
+To run many:
+
+```shell
+for f in llm_output/components_complete2/*.json; do tracs_add_judge "$f" --judge human; done
+```
+
 ## TODOs LLM pipeline
 
 - Probabilistic predicates
@@ -186,4 +192,3 @@ tracs_add_judge output/1_halt_claude-opus-4-7_seed1.json \
     safe_car if is_vehicle(X) and distance(X) > 5.
     landscape if safe_car.
     ```
-- could make it easier to query multiple LLMs in parallel: https://gemini.google.com/share/3005c3443542

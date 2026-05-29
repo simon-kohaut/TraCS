@@ -1,0 +1,1 @@
+Bike lanes are exclusively for cyclists and bus lanes are exclusively for buses. These restrictions do not apply at intersections. The final rule should be called lane_type_ok.

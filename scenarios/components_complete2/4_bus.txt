@@ -1,0 +1,1 @@
+Buses must not turn with a yaw rate above 0.4 rad/s or accelerate faster than 5.0 (km/h)/s. When a bus lane is within 5 meters, buses must use it unless they are at an intersection. The final rule should be called bus_ok.

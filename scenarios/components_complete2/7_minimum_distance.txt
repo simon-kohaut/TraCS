@@ -1,0 +1,1 @@
+Maintain at least 3 meters of distance from all vehicles, motorcyclists, and buses at all times. The final rule should be called min_distance.
