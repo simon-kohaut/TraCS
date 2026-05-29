@@ -179,16 +179,3 @@ To run many:
 ```shell
 for f in llm_output/components_complete2/*.json; do tracs_add_judge "$f" --judge human; done
 ```
-
-## TODOs LLM pipeline
-
-- Probabilistic predicates
-- scenarios:
-    - vielleicht irgendwann: andere autos explizit modellieren und dann:
-    ```
-    distance(vehicle1) ← source(“…“).
-    distance(vehicle2) ← source(“…“).
-    is_vehicle(vehicle1).
-    safe_car if is_vehicle(X) and distance(X) > 5.
-    landscape if safe_car.
-    ```
