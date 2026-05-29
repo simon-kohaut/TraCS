@@ -6,12 +6,10 @@
 pip install -e .
 ```
 
-TODO for submission: redact the Google drive link, they cannot easily be made anonymous
-
 To get the backbone outputs:
 ```shell
 mkdir -p data; cd data
-gdown --folder 1Vk8WSlfocli7gVtyPWC-pU3QbbxVCZXm
+gdown --folder <<REDACCTED_GOOGLE_DRIVE_LINK>>
 ```
 
 To get the scenario files:
