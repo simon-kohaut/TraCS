@@ -16,13 +16,14 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
+from openai import LengthFinishReasonError
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.syntax import Syntax
 
-from tracs.coder import JudgeOutput
+from tracs.agents.pipeline import JudgeOutput
 
 
 def _build_judge_llm(backend: str, model: str, seed: int):
@@ -129,8 +130,12 @@ def _run_llm(
                 f"Candidate Resin program:\n{it.get('program', '')}"
             )),
         ]
-        result: JudgeOutput = llm.invoke(messages)
-        it["opinions"][args.judge] = {"passed": result.verdict, "critique": result.critique}
+        try:
+            result: JudgeOutput = llm.invoke(messages)
+            verdict, critique = result.verdict, result.critique
+        except LengthFinishReasonError:
+            verdict, critique = False, "The judge did not conclude within the token budget. Possibly, your program was too long."
+        it["opinions"][args.judge] = {"passed": verdict, "critique": critique}
         _save(trace_path, trace)
 
         status = "[green]PASS[/green]" if result.verdict else "[red]FAIL[/red]"
@@ -143,7 +148,7 @@ def main() -> None:
     load_dotenv()
 
     parser = argparse.ArgumentParser(
-        prog="tracs_add_judge",
+        prog="tracs_agents_append_judge",
         description="Add post-hoc judge opinions to a TraCS JSON trace file.",
     )
     parser.add_argument("trace", help="Path to the .json trace file.")

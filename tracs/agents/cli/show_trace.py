@@ -1,4 +1,4 @@
-"""CLI script to pretty-print a TraCS JSON trace file."""
+"""CLI script to pretty-print a TraCS JSON iterative generation trace file."""
 
 import argparse
 import json
@@ -58,7 +58,7 @@ def _iteration_panel(idx: int, record: dict, n_total: int) -> Panel:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="tracs_show",
+        prog="tracs_agents_show_trace",
         description="Pretty-print a TraCS JSON trace file.",
     )
     parser.add_argument("trace", help="Path to the .json trace file.")

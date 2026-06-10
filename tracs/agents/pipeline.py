@@ -22,7 +22,7 @@ from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from tracs.resin_verifier import ResinSyntaxChecker
+from tracs.agents.resin_verifier import ResinSyntaxChecker
 
 
 class JudgeOutput(BaseModel):
@@ -41,7 +41,7 @@ class IterationRecord:
 
 
 class CoderPipeline:
-    """Three-agent iterative pipeline: coder -> judge -> compiler -> (repeat until accepted)."""
+    """Three-agent iterative pipeline: coder -> judge + compiler -> (repeat until accepted)."""
 
     def __init__(
         self,

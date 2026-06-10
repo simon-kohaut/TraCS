@@ -38,10 +38,10 @@ dependencies = [
 ]
 
 [project.scripts]
-tracs_gen = "tracs.cli:main"
-tracs_run_all = "tracs.run_all:main"
-tracs_show = "tracs.show_trace:main"
-tracs_add_judge = "tracs.add_judge:main"
+tracs_agents_run = "tracs.agents.cli.run:main"
+tracs_agents_run_all = "tracs.agents.cli.run_all:main"
+tracs_agents_show_trace = "tracs.agents.cli.show_trace:main"
+tracs_agents_append_judge = "tracs.agents.cli.append_judge:main"
 
 [tool.setuptools.packages.find]
 include = ["tracs*"]

@@ -21,8 +21,8 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
-from tracs.coder import CoderPipeline, IterationRecord
-from tracs.promis_preparation import generate_full_program
+from tracs.agents.pipeline import CoderPipeline, IterationRecord
+from tracs.agents.promis_preparation import generate_full_program
 
 
 _TRUNCATE_LINES = 15
@@ -94,7 +94,7 @@ def main() -> None:
     load_dotenv()
 
     parser = argparse.ArgumentParser(
-        prog="tracs",
+        prog="tracs_agents_run",
         description="Generate a Resin compliance model from a natural-language traffic regulation.",
     )
     parser.add_argument(

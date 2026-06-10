@@ -1,6 +1,6 @@
 # TraCS - Trajectory Compliance-Shaping
 
-## Install
+## Installation and Setup
 
 ```shell
 pip install -e .
@@ -14,7 +14,7 @@ gdown --folder <<REDACCTED_GOOGLE_DRIVE_LINK>>
 
 To get the scenario files:
 ```shell
-# Assuming you are still in data/
+# Assuming you are still in data/, run:
 mkdir -p av2; cd av2
 
 curl -LO https://s3.amazonaws.com/argoverse/datasets/av2/motion-forecasting/av2_mf_focal_test_annotations.parquet
@@ -27,6 +27,8 @@ tar -xf train.tar; tar -xf val.tar; tar -xf test.tar
 
 # Cleanup the tar files:
 rm train.tar val.tar test.tar
+
+# Go back to data/:
 cd ../..
 ```
 
@@ -59,8 +61,7 @@ data/
         └── ...
 ```
 
-## Usage
-
+#### Setup for LLM API Keys and Local Models
 Create a `.env` file in the root of the project with the following content:
 
 ```env
@@ -70,41 +71,58 @@ GOOGLE_API_KEY=<your_google_ai_studio_api_key>
 LOCAL_MODEL_KEY=<your_local_model_key from vLLM or similar servers>
 ```
 
-Possibly, start your local model and make it available locally. For example, if using vLLM:
+Possibly, to make your self-hosted model available locally, for example, if using vLLM, run:
 
 ```shell
-ssh -L 54112:localhost:54112 dgx2-b
+ssh -L 54112:localhost:54112 remote_host
 ```
 
-Then, run the following command to execute a scenario:
+## Usage
+
+### Running the Agentic Pipeline
+
+#### Command Overview
+
+| Command | Description |
+|---|---|
+| `tracs_agents_run` | Run the agentic pipeline on a single scenario |
+| `tracs_agents_run_all` | Run all scenarios across all configured models and seeds |
+| `tracs_agents_show_trace` | Pretty-print a JSON trace file |
+| `tracs_agents_append_judge` | Add judge opinions to an existing trace post-hoc |
+
+Run with `--help` for more details on each command and its arguments.
+
+Each run produces a trace derived from `--output`: `<stem>.json`.
+
+#### Running the pipeline on a scenario
+
+Run the following command to execute a scenario:
 
 ```shell
-tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
+tracs_agents_run scenarios/1_halt.txt --output run/out/1_halt.json \
   --coder-backend anthropic --judge-backend anthropic --max-iterations 5
 
-tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
+tracs_agents_run scenarios/1_halt.txt --output run/out/1_halt.json \
   --coder-backend openai --coder-model gpt-5.4-mini \
   --judge-backend openai --judge-model gpt-5.4-mini \
   --max-iterations 5
 
 # Separate backends for coder and judge:
-tracs_gen scenarios/1_halt.txt --output run/out/1_halt.json \
+tracs_agents_run scenarios/1_halt.txt --output run/out/1_halt.json \
   --coder-backend local --coder-model Qwen/Qwen3.6-27B \
   --judge-backend anthropic --judge-model claude-opus-4-7 \
   --max-iterations 5
 ```
 
-Or run all scenarios sequentially:
+Or run all scenarios and models sequentially:
 
 ```shell
-tracs_run_all
+tracs_agents_run_all
 ```
 
-## Output
+The processing speed depends on the LLM inference speed and, importantly, the number of iterations.
 
-Each run produces a trace derived from `--output`: `<stem>.json`.
-
-### JSON trace schema
+#### JSON Trace Schema
 
 Each run produces a single JSON object like this (values abbreviated for readability):
 
@@ -152,28 +170,32 @@ Each run produces a single JSON object like this (values abbreviated for readabi
 }
 ```
 
-### Showing all traces
+#### Showing All Traces
+
+This will loop over all traces:
 
 ```shell
-for f in output/*; do echo "$f:"; tracs_show "$f"; read -p "Press Enter for next..."; echo ; done
+for f in llm_outputs/*.json; do echo "$f:"; tracs_agents_show_trace "$f"; read -p "Press Enter for next..."; echo ; done
 ```
 
-### Adding judge opinions post-hoc
+#### Adding Judge Opinions Post-hoc
 
-Use `tracs_add_judge` to annotate an existing trace with additional judge verdicts.
+Use `tracs_agents_append_judge` to annotate an existing trace with additional judge verdicts.
 Opinions are stored per iteration under the `opinions` key, keyed by judge name.
 
 ```shell
 # Interactive human annotation (y/n/s per iteration)
-tracs_add_judge output/1_halt_claude-opus-4-7_seed1.json --judge human
+tracs_agents_append_judge output/1_halt_claude-opus-4-7_seed1.json --judge human
 
 # LLM judge (uses the system_judge prompt already embedded in the trace)
-tracs_add_judge output/1_halt_claude-opus-4-7_seed1.json \
+tracs_agents_append_judge output/1_halt_claude-opus-4-7_seed1.json \
   --judge claude-opus-4-7 --backend anthropic
 ```
 
 To run many:
 
 ```shell
-for f in llm_output/components_complete2/*.json; do tracs_add_judge "$f" --judge human; done
+for f in llm_outputs/my_traffic_rule/*.json; do tracs_agents_append_judge "$f" --judge human; done
 ```
+
+After having added human opinions, you can analyze agreement between the human and LLM judges. See `analysis/agent-loop.ipynb` for automated analysis.

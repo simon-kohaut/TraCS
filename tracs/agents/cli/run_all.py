@@ -12,14 +12,14 @@ OUT = Path("output")
 
 # (backend, model)
 MODELS = [
-    # ("local",      "google/gemma-4-31B-it"),
+    ("local",      "google/gemma-4-31B-it"),
     # ("local",      "Qwen/Qwen3.6-27B"),
     # ("local",      "Aleph-Alpha/Pharia-1-LLM-7B-control-hf"),
-    ("openai",     "gpt-5.5"),
+    # ("openai",     "gpt-5.5"),
     # ("openai",     "gpt-5.4-mini"),
-    ("anthropic",  "claude-opus-4-7"),
+    # ("anthropic",  "claude-opus-4-7"),
     # ("anthropic",  "claude-sonnet-4-6"),
-    ("google",     "gemini-3.1-pro-preview"),
+    # ("google",     "gemini-3.1-pro-preview"),
     # ("google",     "gemini-3-flash-preview"),
     #
     # ("local",      "Qwen/Qwen3.5-0.8B"),
@@ -30,12 +30,12 @@ MODELS = [
     # ("local",      "Qwen/Qwen3.5-122B-A10B"),
 ]
 
-SEEDS = [1] #, 2, 3] # , 4, 5]
+SEEDS = [1, 2, 3]
 
 
 def _run_one(scenario: Path, backend: str, model: str, seed: int, out_path: Path, *, capture: bool) -> tuple[bool, str]:
     result = subprocess.run([
-        "tracs_gen", str(scenario),
+        "tracs_agents_run", str(scenario),
         "--output", str(out_path),
         "--coder-backend", backend,
         "--judge-backend", backend,
@@ -63,7 +63,7 @@ def _report(console: Console, out_path: Path, ok: bool, output: str) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="tracs_run_all")
+    parser = argparse.ArgumentParser(prog="tracs_agents_run_all")
     parser.add_argument(
         "--workers",
         type=int,
