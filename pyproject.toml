@@ -42,6 +42,7 @@ tracs_agents_run_all = "tracs.agents.cli.run_all:main"
 tracs_agents_show_trace = "tracs.agents.cli.show_trace:main"
 tracs_agents_append_judge = "tracs.agents.cli.append_judge:main"
 tracs_agents_stats = "tracs.agents.cli.stats:main"
+tracs_benchmark_inference = "tracs.av2.cli.benchmark_inference:main"
 
 [tool.setuptools.packages.find]
 include = ["tracs*"]
