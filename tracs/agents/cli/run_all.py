@@ -8,19 +8,17 @@ from pathlib import Path
 from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
-OUT = Path("output")
-
 # (backend, model)
 MODELS = [
-    ("local",      "google/gemma-4-31B-it"),
+    # ("local",      "google/gemma-4-31B-it"),
     # ("local",      "Qwen/Qwen3.6-27B"),
     # ("local",      "Aleph-Alpha/Pharia-1-LLM-7B-control-hf"),
-    # ("openai",     "gpt-5.5"),
-    # ("openai",     "gpt-5.4-mini"),
-    # ("anthropic",  "claude-opus-4-7"),
-    # ("anthropic",  "claude-sonnet-4-6"),
-    # ("google",     "gemini-3.1-pro-preview"),
-    # ("google",     "gemini-3-flash-preview"),
+    ("openai",     "gpt-5.5"),
+    ("openai",     "gpt-5.4-mini"),
+    ("anthropic",  "claude-opus-4-7"),
+    ("anthropic",  "claude-sonnet-4-6"),
+    ("google",     "gemini-3.1-pro-preview"),
+    ("google",     "gemini-3-flash-preview"),
     #
     # ("local",      "Qwen/Qwen3.5-0.8B"),
     # ("local",      "Qwen/Qwen3.5-2B"),
@@ -29,8 +27,6 @@ MODELS = [
     # ("local",      "Qwen/Qwen3.5-27B"),
     # ("local",      "Qwen/Qwen3.5-122B-A10B"),
 ]
-
-SEEDS = [1, 2, 3]
 
 
 def _run_one(scenario: Path, backend: str, model: str, seed: int, out_path: Path, *, capture: bool) -> tuple[bool, str]:
@@ -71,18 +67,34 @@ def main():
         metavar="N",
         help="Number of parallel worker threads. Omit for sequential mode with full output.",
     )
+    parser.add_argument(
+        "-o", "--output",
+        type=Path,
+        default=Path("output"),
+        metavar="DIR",
+        help="Directory to write result files to (default: output).",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        default=3,
+        metavar="N",
+        help="Number of seeds to run per scenario/model, starting at 1 (default: 3).",
+    )
     args = parser.parse_args()
 
-    OUT.mkdir(exist_ok=True)
+    seeds = range(1, args.seeds + 1)
+    out = args.output
+    out.mkdir(parents=True, exist_ok=True)
     console = Console(highlight=False)
 
     jobs = []
     for scenario in sorted(Path("scenarios").glob("*.txt")):
         for backend, model in MODELS:
             model_slug = model.replace("/", "_")
-            for seed in SEEDS:
+            for seed in seeds:
                 stem = f"{scenario.stem}_{model_slug}_seed{seed}"
-                out_path = OUT / f"{stem}.json"
+                out_path = out / f"{stem}.json"
                 if out_path.exists():
                     console.print(f"[dim]\\[skip][/dim] {out_path}")
                 else:
