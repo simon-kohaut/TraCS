@@ -10,6 +10,7 @@
 
 from dataclasses import dataclass
 from os import getenv
+from time import perf_counter
 from typing import Callable, Optional
 
 from openai import LengthFinishReasonError
@@ -38,6 +39,12 @@ class IterationRecord:
     critique: str
     compiled: bool
     diagnostics: str
+    coder_seconds: float
+    judge_seconds: float
+    verifier_seconds: float
+    seconds: float
+    coder_usage: dict
+    judge_usage: dict
 
 
 class CoderPipeline:
@@ -73,7 +80,7 @@ class CoderPipeline:
         )
         self._judge = self._build_model(
             judge_backend, judge_model, judge_temperature, seed, max_tokens=max_tokens
-        ).with_structured_output(JudgeOutput)
+        ).with_structured_output(JudgeOutput, include_raw=True)
         self._verifier = ResinSyntaxChecker()
 
         with open("prompt/system_coder.txt") as f:
@@ -151,11 +158,16 @@ class CoderPipeline:
         history: list[IterationRecord] = []
 
         for i in range(self.max_iterations):
-            program = self._invoke_coder(coder_messages)
+            iteration_start = perf_counter()
+
+            program, coder_usage, coder_seconds = self._invoke_coder(coder_messages)
             coder_messages.append(AIMessage(content=program))
 
-            judge_passed, critique = self._call_judge(regulation, program)
+            judge_passed, critique, judge_usage, judge_seconds = self._call_judge(regulation, program)
+
+            verifier_start = perf_counter()
             compiled, diagnostics = self._verifier.verify(program)
+            verifier_seconds = perf_counter() - verifier_start
 
             record = IterationRecord(
                 iteration=i + 1,
@@ -164,6 +176,12 @@ class CoderPipeline:
                 critique=critique,
                 compiled=compiled,
                 diagnostics=diagnostics,
+                coder_seconds=coder_seconds,
+                judge_seconds=judge_seconds,
+                verifier_seconds=verifier_seconds,
+                seconds=perf_counter() - iteration_start,
+                coder_usage=coder_usage,
+                judge_usage=judge_usage,
             )
             history.append(record)
 
@@ -182,9 +200,12 @@ class CoderPipeline:
             f"Pipeline did not converge after {self.max_iterations} iterations."
         )
 
-    def _invoke_coder(self, messages: list) -> str:
-        content = self._coder.invoke(self._trim_history(messages)).content
-        return _strip_code_fences(_strip_thinking_traces(_content_to_str(content).strip()))
+    def _invoke_coder(self, messages: list) -> tuple[str, dict, float]:
+        start = perf_counter()
+        message = self._coder.invoke(self._trim_history(messages))
+        seconds = perf_counter() - start
+        program = _strip_code_fences(_strip_thinking_traces(_content_to_str(message.content).strip()))
+        return program, _usage_to_dict(message), seconds
 
     def _trim_history(self, messages: list) -> list:
         """Keep system + initial prompt and the last history_window revision cycles."""
@@ -196,16 +217,23 @@ class CoderPipeline:
             tail = tail[-max_tail:]
         return header + tail
 
-    def _call_judge(self, regulation: str, program: str) -> tuple[bool, str]:
+    def _call_judge(self, regulation: str, program: str) -> tuple[bool, str, dict, float]:
         messages = [
             SystemMessage(content=self._judge_system),
             HumanMessage(content=self._judge_prompt(regulation, program)),
         ]
+        start = perf_counter()
         try:
-            result: JudgeOutput = self._judge.invoke(messages)
-            return result.verdict, result.critique
+            result = self._judge.invoke(messages)
         except LengthFinishReasonError:
-            return False, "The judge did not conclude within the token budget. Possibly, your program was too long."
+            seconds = perf_counter() - start
+            return False, "The judge did not conclude within the token budget. Possibly, your program was too long.", {}, seconds
+        seconds = perf_counter() - start
+
+        parsed: Optional[JudgeOutput] = result["parsed"]
+        if parsed is None:
+            raise result["parsing_error"]
+        return parsed.verdict, parsed.critique, _usage_to_dict(result["raw"]), seconds
 
     @staticmethod
     def _initial_coder_prompt(regulation: str) -> str:
@@ -236,6 +264,16 @@ class CoderPipeline:
         if not compiled:
             parts.append(f"Compiler errors:\n{diagnostics}")
         return "\n\n".join(parts)
+
+
+def _usage_to_dict(message) -> dict:
+    """Token counts from a LangChain response; None where the backend reports none."""
+    usage = getattr(message, "usage_metadata", None) or {}
+    return {
+        "input_tokens": usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+    }
 
 
 def _content_to_str(content) -> str:

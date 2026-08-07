@@ -89,6 +89,7 @@ ssh -L 54112:localhost:54112 remote_host
 | `tracs_agents_run_all` | Run all scenarios across all configured models and seeds |
 | `tracs_agents_show_trace` | Pretty-print a JSON trace file |
 | `tracs_agents_append_judge` | Add judge opinions to an existing trace post-hoc |
+| `tracs_agents_stats` | Runtime and token statistics over a set of traces |
 
 Run with `--help` for more details on each command and its arguments.
 
@@ -152,7 +153,11 @@ Each run produces a single JSON object like this (values abbreviated for readabi
       "opinions": {
         "human": {"passed": true},
         "claude-opus-4-7": {"passed": false, "critique": "..."}
-      }
+      },
+      "coder": {"seconds": 12.41, "input_tokens": 3102, "output_tokens": 812, "total_tokens": 3914},
+      "judge": {"seconds": 6.08, "input_tokens": 2450, "output_tokens": 190, "total_tokens": 2640},
+      "verifier": {"seconds": 0.003},
+      "seconds": 18.49
     },
     {
       "program": "...",
@@ -161,14 +166,36 @@ Each run produces a single JSON object like this (values abbreviated for readabi
       "critique": "",
       "compiled": true,
       "compiler_errors": "",
-      "opinions": {}
+      "opinions": {},
+      "coder": {"seconds": 9.87, "input_tokens": 4210, "output_tokens": 640, "total_tokens": 4850},
+      "judge": {"seconds": 5.21, "input_tokens": 2890, "output_tokens": 41, "total_tokens": 2931},
+      "verifier": {"seconds": 0.002},
+      "seconds": 15.08
     }
   ],
   "accepted": true,
   "final_program": "... accepted program string ...",
-  "full_final_program": "..."
+  "full_final_program": "...",
+  "timing": {
+    "pipeline_seconds": 33.57,
+    "total_seconds": 33.81,
+    "coder_seconds": 22.28,
+    "judge_seconds": 11.29,
+    "verifier_seconds": 0.005
+  },
+  "tokens": {
+    "coder": {"input_tokens": 7312, "output_tokens": 1452, "total_tokens": 8764, "n_calls": 2},
+    "judge": {"input_tokens": 5340, "output_tokens": 231, "total_tokens": 5571, "n_calls": 2},
+    "input_tokens": 12652, "output_tokens": 1683, "total_tokens": 14335, "n_calls": 4
+  }
 }
 ```
+
+Token counts are `null` when a backend does not report `usage_metadata` (e.g. some local/Ollama
+models); `tracs_agents_stats` drops missing values from its statistics rather than treating them
+as zero. `seconds` are measured with `time.perf_counter()` around each LLM call only (excluding
+JSON/prompt-processing overhead), so `coder_seconds + judge_seconds + verifier_seconds` per
+iteration is close to, but not exactly, that iteration's `seconds`.
 
 #### Showing All Traces
 
@@ -176,6 +203,19 @@ This will loop over all traces:
 
 ```shell
 for f in llm_outputs/*.json; do echo "$f:"; tracs_agents_show_trace "$f"; read -p "Press Enter for next..."; echo ; done
+```
+
+#### Runtime and Token Statistics
+
+`tracs_agents_stats` reads a directory (or a list) of `.json` traces and prints mean, std, q5,
+q50, q95, and q99 for run/iteration timing and token counts, both overall and broken down by
+`--group-by` (default `coder_model`; also `judge_model`, `coder_backend`, `judge_backend`,
+`scenario`, `seed`). Traces written before this feature was added (no `timing`/`tokens` keys)
+are counted and skipped rather than causing an error.
+
+```shell
+tracs_agents_stats output/
+tracs_agents_stats output/ --group-by scenario
 ```
 
 #### Adding Judge Opinions Post-hoc

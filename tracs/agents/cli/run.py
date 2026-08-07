@@ -12,6 +12,8 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from time import perf_counter
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -67,7 +69,40 @@ def _iteration_panel(record: IterationRecord, max_iterations: int, verbose: bool
     )
 
 
-def _write_trace(output_path: Path, args, regulation: str, iterations: list, accepted: bool, result, full_result, *, coder_backend: str, judge_backend: str):
+def _sum_usage(iterations: list, agent: str, field: str) -> Optional[int]:
+    """Sum a token field across iterations for one agent ("coder"/"judge"). None if never reported."""
+    values = [it[agent][field] for it in iterations if it[agent].get(field) is not None]
+    if not values:
+        return None
+    return sum(values)
+
+
+def _usage_block(iterations: list, agent: str) -> dict:
+    return {
+        "input_tokens": _sum_usage(iterations, agent, "input_tokens"),
+        "output_tokens": _sum_usage(iterations, agent, "output_tokens"),
+        "total_tokens": _sum_usage(iterations, agent, "total_tokens"),
+        "n_calls": len(iterations),
+    }
+
+
+def _combined_tokens(coder: dict, judge: dict) -> dict:
+    def _add(a: Optional[int], b: Optional[int]) -> Optional[int]:
+        return None if a is None and b is None else (a or 0) + (b or 0)
+
+    return {
+        "coder": coder,
+        "judge": judge,
+        "input_tokens": _add(coder["input_tokens"], judge["input_tokens"]),
+        "output_tokens": _add(coder["output_tokens"], judge["output_tokens"]),
+        "total_tokens": _add(coder["total_tokens"], judge["total_tokens"]),
+        "n_calls": coder["n_calls"] + judge["n_calls"],
+    }
+
+
+def _write_trace(output_path: Path, args, regulation: str, iterations: list, accepted: bool, result, full_result, *, coder_backend: str, judge_backend: str, pipeline_seconds: float, total_seconds: float):
+    coder_tokens = _usage_block(iterations, "coder")
+    judge_tokens = _usage_block(iterations, "judge")
     trace = {
         "parameters": {
             "scenario": Path(args.regulation).stem,
@@ -86,11 +121,21 @@ def _write_trace(output_path: Path, args, regulation: str, iterations: list, acc
         "accepted": accepted,
         "final_program": result,
         "full_final_program": full_result,
+        "timing": {
+            "pipeline_seconds": pipeline_seconds,
+            "total_seconds": total_seconds,
+            "coder_seconds": sum(it["coder"]["seconds"] for it in iterations),
+            "judge_seconds": sum(it["judge"]["seconds"] for it in iterations),
+            "verifier_seconds": sum(it["verifier"]["seconds"] for it in iterations),
+        },
+        "tokens": _combined_tokens(coder_tokens, judge_tokens),
     }
     output_path.with_suffix(".json").write_text(json.dumps(trace, indent=2), encoding="utf-8")
+    return trace
 
 
 def main() -> None:
+    process_start = perf_counter()
     load_dotenv()
 
     parser = argparse.ArgumentParser(
@@ -210,9 +255,15 @@ def main() -> None:
                 "compiled": record.compiled,
                 "compiler_errors": record.diagnostics,
                 "opinions": {},
+                "coder": {"seconds": record.coder_seconds, **record.coder_usage},
+                "judge": {"seconds": record.judge_seconds, **record.judge_usage},
+                "verifier": {"seconds": record.verifier_seconds},
+                "seconds": record.seconds,
             })
 
+        pipeline_start = perf_counter()
         program, history = pipeline.run(regulation, on_iteration=on_iteration)
+        pipeline_seconds = perf_counter() - pipeline_start
         n = len(history)
 
         console.rule(f"[green bold]Accepted after {n} iteration{'s' if n != 1 else ''}[/green bold]")
@@ -224,14 +275,20 @@ def main() -> None:
             output_path = Path(args.output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(full_program, encoding="utf-8")
-            _write_trace(output_path, args, regulation, iterations, accepted=True, result=program, full_result=full_program, coder_backend=coder_backend, judge_backend=judge_backend)
+            total_seconds = perf_counter() - process_start
+            trace = _write_trace(output_path, args, regulation, iterations, accepted=True, result=program, full_result=full_program, coder_backend=coder_backend, judge_backend=judge_backend, pipeline_seconds=pipeline_seconds, total_seconds=total_seconds)
             console.print(f"  Saved to: [green]{args.output}[/green]")
+            total_tokens = trace["tokens"]["total_tokens"]
+            tokens_str = f"{total_tokens:,} tokens" if total_tokens is not None else "unknown tokens"
+            console.print(f"  Elapsed: [cyan]{total_seconds:.1f} s[/cyan] · {tokens_str}")
 
     except RuntimeError as exc:
         console.rule("[red bold]Pipeline Failed[/red bold]")
         console.print(f"  [red]{exc}[/red]")
         if args.output != "-":
-            _write_trace(Path(args.output), args, regulation, iterations, accepted=False, result=None, full_result=None, coder_backend=coder_backend, judge_backend=judge_backend)
+            pipeline_seconds = perf_counter() - pipeline_start
+            total_seconds = perf_counter() - process_start
+            _write_trace(Path(args.output), args, regulation, iterations, accepted=False, result=None, full_result=None, coder_backend=coder_backend, judge_backend=judge_backend, pipeline_seconds=pipeline_seconds, total_seconds=total_seconds)
         sys.exit(1)
 
 
