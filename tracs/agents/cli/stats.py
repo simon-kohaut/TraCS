@@ -15,7 +15,6 @@ _GROUP_BY_CHOICES = ["coder_model", "judge_model", "coder_backend", "judge_backe
 
 _RUN_METRICS = [
     ("run pipeline seconds", lambda t, its: t["timing"]["pipeline_seconds"]),
-    ("run wall seconds", lambda t, its: t["timing"]["total_seconds"]),
     ("run coder seconds", lambda t, its: t["timing"]["coder_seconds"]),
     ("run judge seconds", lambda t, its: t["timing"]["judge_seconds"]),
     ("run total tokens", lambda t, its: t["tokens"]["total_tokens"]),
@@ -26,12 +25,12 @@ _RUN_METRICS = [
 
 _ITER_METRICS = [
     ("iteration seconds", lambda it: it["seconds"]),
-    ("coder seconds", lambda it: it["coder"]["seconds"]),
-    ("judge seconds", lambda it: it["judge"]["seconds"]),
-    ("coder output tokens (per answer)", lambda it: it["coder"].get("output_tokens")),
-    ("coder input tokens", lambda it: it["coder"].get("input_tokens")),
-    ("judge output tokens (per answer)", lambda it: it["judge"].get("output_tokens")),
-    ("judge input tokens", lambda it: it["judge"].get("input_tokens")),
+    ("iteration coder seconds", lambda it: it["coder"]["seconds"]),
+    ("iteration judge seconds", lambda it: it["judge"]["seconds"]),
+    ("iteration coder output tokens", lambda it: it["coder"].get("output_tokens")),
+    ("iteration coder input tokens", lambda it: it["coder"].get("input_tokens")),
+    ("iteration judge output tokens", lambda it: it["judge"].get("output_tokens")),
+    ("iteration judge input tokens", lambda it: it["judge"].get("input_tokens")),
 ]
 
 
