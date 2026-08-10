@@ -426,6 +426,16 @@ class AV2AgentLoader(SpatialLoader):
                 for ag in included[self.threshold_topk:]:
                     ag["included_in_features"] = False
 
+        # Assign each included agent a canonical, identity-independent slot name
+        # (sorted by type then distance, so the ordering only depends on the
+        # scenario's agent-type-count profile). This lets scenarios with the same
+        # profile compile to byte-identical Resin programs and share a cached
+        # ProMis instance -- see tracs/av2/inference.py's _PROMIS_CACHE.
+        included = [ag for ag in self.agents if ag["included_in_features"]]
+        included.sort(key=lambda ag: (ag["agent_type"], ag["min_dist_to_focal"]))
+        for slot_index, ag in enumerate(included):
+            ag["slot_name"] = f"agent_slot{slot_index}"
+
         # # Temporary debug: moving-agent count + min-distance distribution from focal agent
         # # (min distance per agent = closest approach; large min → safe to exclude)
         # moving_agents = [ag for ag in self.agents if ag["is_moving"]]
@@ -484,11 +494,11 @@ class AV2AgentLoader(SpatialLoader):
                 standstill_agents.append((agent, index))
             else:
                 if self.include_individual_agents:
-                    self.features[f"agent_{agent['track_id']}"].append(
+                    self.features[agent["slot_name"]].append(
                         CartesianLocation(
                             east=x, north=y,
                             name=agent['track_id'],
-                            location_type=f"agent_{agent['track_id']}",
+                            location_type=agent["slot_name"],
                             covariance=agent["covariance"] * np.eye(2),
                         )
                     )
@@ -527,16 +537,20 @@ class AV2AgentLoader(SpatialLoader):
         facts += f"is_{self.focal_predictions[0]['agent_type']}.\n"
 
         if self.include_individual_agents:
-            for agent in self.agents:
-                if not agent["included_in_features"]:
-                    continue
+            included = [ag for ag in self.agents if ag["included_in_features"]]
+            # Emit in canonical slot order (not dataframe order) so that two
+            # scenarios with the same agent-type-count profile produce byte-identical
+            # text, regardless of which real agents happen to fill the slots.
+            # (Sort by the same key used to assign slot_name, not slot_name itself,
+            # since "agent_slot10" < "agent_slot2" lexicographically.)
+            included.sort(key=lambda ag: (ag["agent_type"], ag["min_dist_to_focal"]))
+            for agent in included:
+                agent_name = agent["slot_name"]
 
-                agent_name = f"agent_{agent['track_id']}"
-
-                # Require "distance(agent_123) <- source("/star_map/distance/agent_123", Density)."
+                # Require "distance(agent_slot0) <- source("/star_map/distance/agent_slot0", Density)."
                 facts += f"distance({agent_name}) <- source(\"/star_map/distance/{agent_name}\", Density).\n"
 
-                # Facts like "vehicle(agent_123).", "pedestrian(agent_456).", etc.
+                # Facts like "vehicle(agent_slot0).", "pedestrian(agent_slot1).", etc.
                 facts += f"{agent['agent_type']}({agent_name}).\n"
 
         return facts

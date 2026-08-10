@@ -9,19 +9,33 @@
 #
 
 # Standard Library
-from pathlib import Path
-from typing import Any, Callable
 import time
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 # Third Party
 import numpy as np
 import pandas as pd
-from promis import StaRMap, ProMis
-from promis.geo import CartesianRasterBand, CartesianMap, CartesianCollection
+from promis import ProMis, StaRMap
+from promis.geo import CartesianCollection, CartesianMap, CartesianRasterBand
 
 # TraCS
-from tracs.av2.av2_loader import AV2StaticMapLoader, AV2AgentLoader, load_focal_gt_trajectory
+from tracs.av2.av2_loader import (
+    AV2AgentLoader,
+    AV2StaticMapLoader,
+    load_focal_gt_trajectory,
+)
 from tracs.av2.metrics import tracs_pointwise_to_score
+
+# Cache of compiled ProMis engines, keyed by (augmented_logic, dimension, max_models).
+# AV2AgentLoader assigns agents canonical, identity-independent slot names (av2_loader.py's
+# `slot_name`), so two different scenarios with the same agent-type-count profile compile to
+# byte-identical Resin programs and can share an entry here, skipping Resin.compile() (subsantial
+# part of per-scenario runtime). Reusing a compiled engine across scenarios is safe, as long as
+# the reactive circuit's "current landscape" state is carried forward instead of reset; see the
+# `_tracs_last_landscape` attribute stashed on the ProMis instance below.
+_PROMIS_CACHE: dict[tuple[str, int, int | None], ProMis] = {}
 
 
 def _tracs_rate_all(
@@ -50,8 +64,14 @@ def _tracs_rate_all(
     tracs_scores = np.zeros((len(trajectories), num_timesteps))
     last_speeds = None
     last_headings = None
-    landscape = None
-    for timestep in range(0, num_timesteps):
+    # When `promis` is a fresh (uncached) engine this is None, matching prior behavior.
+    # When reused from _PROMIS_CACHE, seed from its last known landscape instead of
+    # resetting to None: the reactive circuit may report "no change" on the very first
+    # update after a scenario switch, and the correct value to report for an unchanged output
+    # is exactly whatever the circuit's current state already is.
+    landscape = getattr(promis, "_tracs_last_landscape", None)
+
+    for timestep in range(num_timesteps):
         current_time = timestep / sample_rate
 
         # Get next predicted locations and transitions
@@ -111,6 +131,7 @@ def _tracs_rate_all(
         updated_landscape = promis.update()
         if updated_landscape is not None:
             landscape = updated_landscape
+            promis._tracs_last_landscape = landscape
 
         for i in range(len(trajectories)):
             tracs_scores[i, timestep] = landscape.values()[i, 0]
@@ -128,6 +149,7 @@ def tracs_rate_scenario(
     data_root: Path,
     split: str,
     scenario_length: int = 60,
+    max_models: int = 1_000_000,
     # Meant for custom inspection/visualization during the evaluation loop
     callback_after_timestep: Callable[[int, float, CartesianCollection, ProMis], None]
         # The callback receives the current index, time in seconds, landscape, and promis instance.
@@ -170,7 +192,16 @@ def tracs_rate_scenario(
         logic=augmented_logic,
     )
 
-    promis = ProMis(star_map, augmented_logic, 7, verbose=False, max_models=1_000_000)
+    promis_cache_key = (augmented_logic, 7, max_models)
+    promis = _PROMIS_CACHE.get(promis_cache_key)
+    if promis is None:
+        promis = ProMis(star_map, augmented_logic, 7, verbose=False, max_models=max_models)
+        _PROMIS_CACHE[promis_cache_key] = promis
+    else:
+        # Reuse the compiled Resin engine (the expensive part -- Resin.compile()); only
+        # relink it to this scenario's own (cheap to build) StaRMap instance.
+        promis.star_map = star_map
+        star_map._promis = promis
     promis.initialize(evaluation_points=raster, interpolation_method="nearest")
 
     if 'source("/sensors/speed"' in augmented_logic:
