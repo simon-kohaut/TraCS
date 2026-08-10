@@ -536,22 +536,23 @@ class AV2AgentLoader(SpatialLoader):
         # One of "is_vehicle.", "is_bus.", "is_cyclist.", "is_motorcyclist." or "is_pedestrian."
         facts += f"is_{self.focal_predictions[0]['agent_type']}.\n"
 
-        if self.include_individual_agents:
-            included = [ag for ag in self.agents if ag["included_in_features"]]
-            # Emit in canonical slot order (not dataframe order) so that two
-            # scenarios with the same agent-type-count profile produce byte-identical
-            # text, regardless of which real agents happen to fill the slots.
-            # (Sort by the same key used to assign slot_name, not slot_name itself,
-            # since "agent_slot10" < "agent_slot2" lexicographically.)
-            included.sort(key=lambda ag: (ag["agent_type"], ag["min_dist_to_focal"]))
-            for agent in included:
-                agent_name = agent["slot_name"]
+        # For now, those are not needed so we exlucde them for more compile cache hits:
+        # if self.include_individual_agents:
+        #     included = [ag for ag in self.agents if ag["included_in_features"]]
+        #     # Emit in canonical slot order (not dataframe order) so that two
+        #     # scenarios with the same agent-type-count profile produce byte-identical
+        #     # text, regardless of which real agents happen to fill the slots.
+        #     # (Sort by the same key used to assign slot_name, not slot_name itself,
+        #     # since "agent_slot10" < "agent_slot2" lexicographically.)
+        #     included.sort(key=lambda ag: (ag["agent_type"], ag["min_dist_to_focal"]))
+        #     for agent in included:
+        #         agent_name = agent["slot_name"]
 
-                # Require "distance(agent_slot0) <- source("/star_map/distance/agent_slot0", Density)."
-                facts += f"distance({agent_name}) <- source(\"/star_map/distance/{agent_name}\", Density).\n"
+        #         # Require "distance(agent_slot0) <- source("/star_map/distance/agent_slot0", Density)."
+        #         facts += f"distance({agent_name}) <- source(\"/star_map/distance/{agent_name}\", Density).\n"
 
-                # Facts like "vehicle(agent_slot0).", "pedestrian(agent_slot1).", etc.
-                facts += f"{agent['agent_type']}({agent_name}).\n"
+        #         # Facts like "vehicle(agent_slot0).", "pedestrian(agent_slot1).", etc.
+        #         facts += f"{agent['agent_type']}({agent_name}).\n"
 
         return facts
 
