@@ -107,7 +107,7 @@ def _tracs_rate_all(
 
         # Get new inference results and append as tracs scores
         time.sleep(0.01)  # Ensures that all data has already transferred
-        promis._evaluation_points = agent_locations
+        promis.set_evaluation_points(agent_locations)
         updated_landscape = promis.update()
         if updated_landscape is not None:
             landscape = updated_landscape
