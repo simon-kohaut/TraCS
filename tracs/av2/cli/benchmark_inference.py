@@ -83,15 +83,32 @@ def _run(args: argparse.Namespace) -> None:
                 console.print(
                     f"[warn] {scenario_id} failed ({type(exc).__name__}: {exc}), skipping"
                 )
+                # Recorded with no timing so the failure survives into the output CSV
+                records.append(
+                    {
+                        "scenario_id": scenario_id,
+                        "seconds": np.nan,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
                 progress.advance(task)
                 continue
             elapsed = time.perf_counter() - start
-            records.append({"scenario_id": scenario_id, "seconds": elapsed})
+            records.append({"scenario_id": scenario_id, "seconds": elapsed, "error": None})
             progress.advance(task)
 
-    times = np.array([r["seconds"] for r in records])
+    times = np.array([r["seconds"] for r in records if r["error"] is None])
+    n_failed = len(records) - len(times)
+    if n_failed:
+        console.print(f"[warn] {n_failed} of {len(records)} scenarios failed")
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(records)
     if len(times) == 0:
+        # Still write the file: the per-scenario error messages are the whole result
+        df.to_csv(args.output, index=False)
         console.print("[red]No scenarios completed successfully; nothing to report.")
+        console.print(f"Wrote per-scenario failures to {args.output}")
         return
 
     mean = np.mean(times)
@@ -110,9 +127,9 @@ def _run(args: argparse.Namespace) -> None:
     table.add_row("total wall time", f"{times.sum():.4f}")
     console.print(table)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
     summary = {
         "n_scenarios": len(times),
+        "n_failed": n_failed,
         "mean": mean,
         "std": std,
         "q5": q5,
@@ -120,7 +137,6 @@ def _run(args: argparse.Namespace) -> None:
         "q95": q95,
         "q99": q99,
     }
-    df = pd.DataFrame(records)
     for key, value in summary.items():
         df[key] = value
     df.to_csv(args.output, index=False)
