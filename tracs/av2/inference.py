@@ -50,7 +50,7 @@ def _tracs_rate_all(
     sample_rate: float = 10,  # Argoverse 2 is sampled at 10 Hz
     number_of_random_maps: int = 10,
     callback_after_timestep: Callable[[int, float, CartesianCollection, ProMis], None] = lambda idx, time, landscape, promis: None,
-) -> np.ndarray:
+) -> tuple[np.ndarray, float]:
     agent_loader.reset()
     # Initialize the variance with the minADE1 of DeMo
     agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
@@ -64,6 +64,9 @@ def _tracs_rate_all(
     tracs_scores = np.zeros((len(trajectories), num_timesteps))
     last_speeds = None
     last_headings = None
+    # Tracked separately so callers can report inference time net of this barrier;
+    # see tracs_rate_scenario's `inference_seconds` attr.
+    sleep_seconds = 0.0
     # When `promis` is a fresh (uncached) engine this is None, matching prior behavior.
     # When reused from _PROMIS_CACHE, seed from its last known landscape instead of
     # resetting to None: the reactive circuit may report "no change" on the very first
@@ -126,7 +129,9 @@ def _tracs_rate_all(
             yaw_rate_writer.write(yaw_rate, current_time)
 
         # Get new inference results and append as tracs scores
+        _sleep_start = time.perf_counter()
         time.sleep(0.01)  # Ensures that all data has already transferred
+        sleep_seconds += time.perf_counter() - _sleep_start
         promis._evaluation_points = agent_locations
         updated_landscape = promis.update()
         if updated_landscape is not None:
@@ -139,7 +144,7 @@ def _tracs_rate_all(
         # Call the callback function after each timestep
         callback_after_timestep(timestep, current_time, landscape, promis)
 
-    return tracs_scores
+    return tracs_scores, sleep_seconds
 
 
 def tracs_rate_scenario(
@@ -173,6 +178,18 @@ def tracs_rate_scenario(
         focal_starting_speed=agent_loader.focal_starting_speed,
     )
     static_map = static_map_loader.to_cartesian_map()
+
+    # Get ground truth trajectory and append to predictions for rating. Loaded here, before
+    # engine setup, purely so `inference_seconds` below can be one contiguous span -- grading
+    # (comparing against this ground truth) is not part of inference itself.
+    gt_x, gt_y = load_focal_gt_trajectory(data_root, split, scenario_id)
+    ground_truth_traj = {"x_traj": gt_x, "y_traj": gt_y}
+    trajectories = agent_loader.focal_predictions + [ground_truth_traj]
+
+    # Everything from here to the end of _tracs_rate_all is what a live deployment actually
+    # pays for: compiling/reusing the inference engine and running the per-timestep reactive
+    # loop. Scenario loading (above) and grading (below) are benchmark-only overhead.
+    _inference_start = time.perf_counter()
 
     # Initialize StaR Map and ProMis
     raster = CartesianRasterBand(
@@ -217,17 +234,15 @@ def tracs_rate_scenario(
     else:
         yaw_rate_writer = None
 
-    # Get ground truth trajectory and append to predictions for rating
-    gt_x, gt_y = load_focal_gt_trajectory(data_root, split, scenario_id)
-    ground_truth_traj = {"x_traj": gt_x, "y_traj": gt_y}
-    trajectories = agent_loader.focal_predictions + [ground_truth_traj]
-
     # Score of TraCS alone
-    scores = _tracs_rate_all(promis, trajectories, agent_loader, static_map,
+    scores, sleep_seconds = _tracs_rate_all(promis, trajectories, agent_loader, static_map,
                              speed_writer=speed_writer, acceleration_writer=acceleration_writer,
                              yaw_rate_writer=yaw_rate_writer,
                              scenario_length=scenario_length,
                              callback_after_timestep=callback_after_timestep)
+    # Net of the sleep barrier (see _tracs_rate_all): time actually spent computing, not waiting.
+    inference_seconds = (time.perf_counter() - _inference_start) - sleep_seconds
+
     for i, prediction in enumerate(agent_loader.focal_predictions):
         prediction["tracs_pointwise_scores"] = scores[i]
         prediction["tracs_trajectory_score"] = tracs_pointwise_to_score(scores[i])
@@ -244,5 +259,9 @@ def tracs_rate_scenario(
     # Linear opinion pool (additiv)
     scored_predictions["tracs_backbone_linear_op"] = scored_predictions["backbone_trajectory_score"] + scored_predictions["tracs_trajectory_score"]
     scored_predictions["tracs_backbone_linear_op"] /= np.sum(scored_predictions["tracs_backbone_linear_op"])
+
+    # Deployment-relevant inference time (engine setup, cache-amortized, + the per-timestep
+    # reactive loop), net of the sleep barrier -- excludes scenario loading and grading above.
+    scored_predictions.attrs["inference_seconds"] = inference_seconds
 
     return scored_predictions, tracs_pointwise_to_score(scores[6])

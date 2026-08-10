@@ -10,7 +10,6 @@
 
 import argparse
 import random
-import time
 from pathlib import Path
 
 import numpy as np
@@ -70,9 +69,8 @@ def _run(args: argparse.Namespace) -> None:
     ) as progress:
         task = progress.add_task("Benchmarking scenarios...", total=len(scenario_ids))
         for scenario_id in scenario_ids:
-            start = time.perf_counter()
             try:
-                tracs_rate_scenario(
+                scored_predictions, _ = tracs_rate_scenario(
                     scenario_id,
                     logic=logic,
                     prediction_path=submission_file,
@@ -93,8 +91,10 @@ def _run(args: argparse.Namespace) -> None:
                 )
                 progress.advance(task)
                 continue
-            elapsed = time.perf_counter() - start
-            records.append({"scenario_id": scenario_id, "seconds": elapsed, "error": None})
+            # Deployment-relevant inference time only: excludes scenario loading and grading,
+            # and nets out the sleep barrier. See tracs_rate_scenario's `inference_seconds` attr.
+            inference_seconds = scored_predictions.attrs["inference_seconds"]
+            records.append({"scenario_id": scenario_id, "seconds": inference_seconds, "error": None})
             progress.advance(task)
 
     times = np.array([r["seconds"] for r in records if r["error"] is None])
