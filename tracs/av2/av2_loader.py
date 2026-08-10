@@ -10,7 +10,7 @@
 
 # Standard Library
 import math
-from functools import cached_property
+from functools import cached_property, lru_cache
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -51,6 +51,25 @@ def city_to_origin(city_name: str) -> PolarLocation:
     return PolarLocation(longitude=lon, latitude=lat)
 
 
+# Was: pd.read_parquet(path, filters=[("scenario_id", "==", scenario_id)]) — but these split-level
+# files hold every scenario in a single row group, so `filters=` prunes nothing and each read
+# decompresses all 634 MB (~1.5 s). Indexing once costs ~2.7 s and ~2.8 GB, then scenarios are cheap.
+@lru_cache(maxsize=2)
+def _scenario_index(path: Path) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
+    frame = pd.read_parquet(path)
+    return frame, frame.groupby("scenario_id").indices
+
+
+def read_scenario_rows(path: Path, scenario_id: str) -> pd.DataFrame:
+    """Return the rows of a split-level parquet file that belong to a single scenario."""
+
+    frame, rows_by_scenario = _scenario_index(path)
+    positions = rows_by_scenario.get(scenario_id)
+    if positions is None:
+        return frame.iloc[:0].reset_index(drop=True)
+    return frame.take(positions).reset_index(drop=True)
+
+
 def load_focal_gt_trajectory(data_root: Path, split: str, scenario_id: str) -> tuple[np.ndarray, np.ndarray]:
     """Return the focal track's ground-truth future trajectory as (x, y) numpy arrays.
 
@@ -58,9 +77,8 @@ def load_focal_gt_trajectory(data_root: Path, split: str, scenario_id: str) -> t
     lives inside the scenario parquet as rows where `observed` is False.
     """
     if split == "test":
-        ann = pd.read_parquet(
-            data_root / "av2" / "av2_mf_focal_test_annotations.parquet",
-            filters=[("scenario_id", "==", scenario_id)],
+        ann = read_scenario_rows(
+            data_root / "av2" / "av2_mf_focal_test_annotations.parquet", scenario_id
         )
         row = ann.iloc[0]
         return np.asarray(row["gt_trajectory_x"]), np.asarray(row["gt_trajectory_y"])
@@ -334,7 +352,7 @@ class AV2AgentLoader(SpatialLoader):
         setup = pd.read_parquet(self.scenario_path)
         focal_track_id = setup["focal_track_id"].iloc[0]
 
-        df = pd.read_parquet(self.prediction_path, filters=[("scenario_id", "==", self.scenario_id)])
+        df = read_scenario_rows(self.prediction_path, self.scenario_id)
         # For simplicity, we only take the best non-focal predictions
         # Note that the current focal agent must not be the "AV" (Autonomous Vehicle) track,
         # since we also evaluate on other agents in the scenario.
