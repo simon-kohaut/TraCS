@@ -42,6 +42,11 @@ def _tracs_rate_all(
     agent_loader.apply_covariance({"all": np.power(1.639, 2) * np.eye(2)})
 
     num_timesteps = len(trajectories[0]["x_traj"])
+    # The transition below repeats the last velocity by relying on `scenario_length`, so the
+    # predicted horizon has to match it exactly; Argoverse 2 always gives 6 s at 10 Hz.
+    assert num_timesteps == scenario_length, (
+        f"Expected trajectories of {scenario_length} timesteps, got {num_timesteps}"
+    )
     tracs_scores = np.zeros((len(trajectories), num_timesteps))
     last_speeds = None
     last_headings = None
