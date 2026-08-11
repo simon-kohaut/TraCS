@@ -118,6 +118,9 @@ def _run(args: argparse.Namespace) -> None:
 
     mean = np.mean(times)
     std = np.std(times, ddof=1) if len(times) > 1 else 0.0
+    # Delta method: Hz = 1/t is nonlinear, so std(Hz) is not 1/std(t); propagate instead via
+    # std(f(t)) ~= |f'(mean(t))| * std(t) = std(t) / mean(t)**2.
+    std_hz = std / mean**2
     q5, q50, q95, q99 = np.percentile(times, [5, 50, 95, 99])
 
     table = Table(
@@ -130,7 +133,7 @@ def _run(args: argparse.Namespace) -> None:
     table.add_column("Value (s)", justify="right")
     table.add_column("Value (Hz)", justify="right")
     table.add_row("mean", f"{mean:.4f}", f"{1 / mean:.4f}")
-    table.add_row("std", f"{std:.4f}", "—")
+    table.add_row("std", f"{std:.4f}", f"{std_hz:.4f}")
     table.add_row("q5", f"{q5:.4f}", f"{1 / q5:.4f}")
     table.add_row("q50 (median)", f"{q50:.4f}", f"{1 / q50:.4f}")
     table.add_row("q95", f"{q95:.4f}", f"{1 / q95:.4f}")
@@ -145,6 +148,7 @@ def _run(args: argparse.Namespace) -> None:
         "mean": mean,
         "mean_hz": 1 / mean,
         "std": std,
+        "std_hz": std_hz,
         "q5": q5,
         "q5_hz": 1 / q5,
         "q50": q50,
