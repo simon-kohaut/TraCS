@@ -53,8 +53,13 @@ def _run(args: argparse.Namespace) -> None:
     )
     k = max(1, round(len(all_ids) * args.subsample))
     scenario_ids = random.Random(args.seed).sample(all_ids, k)
+    sampled_pct = 100.0 * k / len(all_ids)
 
     console = Console()
+    console.print(
+        f"Sampling {k} of {len(all_ids)} scenarios ({sampled_pct:.2f}%) uniformly at random "
+        f"from the '{args.split}' split."
+    )
     records: list[dict] = []
     with Progress(
         TextColumn("[progress.description]{task.description}"),
@@ -115,27 +120,39 @@ def _run(args: argparse.Namespace) -> None:
     std = np.std(times, ddof=1) if len(times) > 1 else 0.0
     q5, q50, q95, q99 = np.percentile(times, [5, 50, 95, 99])
 
-    table = Table(title=f"TraCS inference runtime per scenario ({len(times)} scenarios)")
+    table = Table(
+        title=(
+            f"TraCS inference runtime per scenario "
+            f"({len(times)} of {len(all_ids)} scenarios in '{args.split}', {sampled_pct:.2f}% sampled)"
+        )
+    )
     table.add_column("Statistic")
     table.add_column("Value (s)", justify="right")
-    table.add_row("mean", f"{mean:.4f}")
-    table.add_row("std", f"{std:.4f}")
-    table.add_row("q5", f"{q5:.4f}")
-    table.add_row("q50 (median)", f"{q50:.4f}")
-    table.add_row("q95", f"{q95:.4f}")
-    table.add_row("q99", f"{q99:.4f}")
-    table.add_row("total wall time", f"{times.sum():.4f}")
+    table.add_column("Value (Hz)", justify="right")
+    table.add_row("mean", f"{mean:.4f}", f"{1 / mean:.4f}")
+    table.add_row("std", f"{std:.4f}", "—")
+    table.add_row("q5", f"{q5:.4f}", f"{1 / q5:.4f}")
+    table.add_row("q50 (median)", f"{q50:.4f}", f"{1 / q50:.4f}")
+    table.add_row("q95", f"{q95:.4f}", f"{1 / q95:.4f}")
+    table.add_row("q99", f"{q99:.4f}", f"{1 / q99:.4f}")
     console.print(table)
 
     summary = {
         "n_scenarios": len(times),
         "n_failed": n_failed,
+        "n_total_in_split": len(all_ids),
+        "sampled_pct": sampled_pct,
         "mean": mean,
+        "mean_hz": 1 / mean,
         "std": std,
         "q5": q5,
+        "q5_hz": 1 / q5,
         "q50": q50,
+        "q50_hz": 1 / q50,
         "q95": q95,
+        "q95_hz": 1 / q95,
         "q99": q99,
+        "q99_hz": 1 / q99,
     }
     for key, value in summary.items():
         df[key] = value
